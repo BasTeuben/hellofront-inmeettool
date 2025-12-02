@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Teamleader Callback</title>
+  </head>
+  <body>
+    <h2>Teamleader autorisatiecode ontvangen</h2>
+    <p>Kopieer de onderstaande code en stuur hem naar ChatGPT:</p>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+
+      if (code) {
+        document.write("<pre>" + code + "</pre>");
+      } else {
+        document.write("<p>Geen code ontvangen.</p>");
+      }
+    </script>
+  </body>
+</html>

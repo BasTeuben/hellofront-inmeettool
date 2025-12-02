@@ -6,12 +6,14 @@ import streamlit as st
 import os
 
 # === Teamleader secrets ophalen vanuit Streamlit Cloud ===
-CLIENT_ID = st.secrets["CLIENT_ID"]
-CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+CLIENT_ID = st.secrets.get("CLIENT_ID")
+CLIENT_SECRET = st.secrets.get("CLIENT_SECRET")
 
 # We geven deze waarden door aan je bestaande script via environment variables
-os.environ["CLIENT_ID"] = CLIENT_ID
-os.environ["CLIENT_SECRET"] = CLIENT_SECRET
+if CLIENT_ID:
+    os.environ["CLIENT_ID"] = CLIENT_ID
+if CLIENT_SECRET:
+    os.environ["CLIENT_SECRET"] = CLIENT_SECRET
 
 # We halen de functies uit jouw bestaande script
 import inmeetverwerker_hellofront as hf
@@ -74,8 +76,15 @@ if uploaded_file is not None:
     # Knop om naar Teamleader te sturen
     if deal_id and st.button("Maak offerte in Teamleader"):
         try:
-            hf.maak_teamleader_offerte(deal_id, data, mode)
-            st.success("✅ Offerte is aangemaakt in Teamleader. Controleer Teamleader voor de details.")
+            response_text = hf.maak_teamleader_offerte(deal_id, data, mode)
+
+            st.markdown("### 🔎 Technische response van Teamleader")
+            st.code(str(response_text), language="json")
+
+            if response_text is None:
+                st.error("❌ Teamleader gaf geen geldige response terug. Waarschijnlijk ontbreekt er een geldig token op de server.")
+            else:
+                st.success("✅ Aanroep naar Teamleader is uitgevoerd. Controleer de response hierboven en in Teamleader zelf.")
         except Exception as e:
             st.error(f"❌ Er ging iets mis bij het aanmaken van de offerte: {e}")
 

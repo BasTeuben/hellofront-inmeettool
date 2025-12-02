@@ -4,16 +4,17 @@ import os
 import json
 
 # ======================================================
-# 🔧 TEAMLEADER CONFIG
+# 🔧 TEAMLEADER CONFIG — VIA RAILWAY / STREAMLIT SECRETS
 # ======================================================
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- GEEN lokaal bestand meer
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
+# 21% BTW-tarief ID
 TAX_RATE_21_ID = "94da9f7d-9bf3-04fb-ac49-404ed252c381"
 
 # Vaste kosten
@@ -26,27 +27,49 @@ PRIJS_LADE = 184.0
 
 
 # ======================================================
-# 🔒 STREAMLIT TOKEN REFRESH
+# 🔒 TOKEN MANAGEMENT VIA REFRESH_TOKEN
 # ======================================================
 
 def get_access_token():
     """
-    Streamlit versie: haalt access token op via refresh token.
+    Haalt een nieuwe access_token op via refresh_token.
+    LET OP: Dit gebruikt GEEN lokaal JSON bestand meer.
     """
-    payload = {
+    global REFRESH_TOKEN
+
+    data = {
         "grant_type": "refresh_token",
+        "refresh_token": REFRESH_TOKEN,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN,
     }
 
-    resp = requests.post(TOKEN_URL, data=payload)
+    resp = requests.post(TOKEN_URL, data=data)
 
     if resp.status_code != 200:
-        raise Exception(f"Kon access_token niet vernieuwen: {resp.text}")
+        raise Exception(
+            f"Kon access_token niet vernieuwen: {resp.text}"
+        )
 
-    data = resp.json()
-    return data["access_token"]
+    tokens = resp.json()
+    REFRESH_TOKEN = tokens["refresh_token"]  # update in RAM
+    return tokens["access_token"]
+
+
+def request_with_auto_refresh(method: str, url: str, json_data=None, files=None):
+
+    try:
+        access_token = get_access_token()
+    except Exception as e:
+        raise Exception(f"Kon access_token niet vernieuwen: {e}")
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    if not files:
+        headers["Content-Type"] = "application/json"
+
+    resp = requests.request(method, url, headers=headers, json=json_data, files=files)
+
+    return resp
 
 
 # ======================================================
@@ -69,30 +92,19 @@ MODEL_INFO = {
 }
 
 FRONT_DESCRIPTION_CONFIG = {
-    "NOAH": {"titel": "Keukenrenovatie model Noah", "materiaal": "MDF Gespoten - vlak", "frontdikte": "18mm", "afwerking": "Zijdeglans",
-             "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "FEDDE": {"titel": "Keukenrenovatie model Fedde", "materiaal": "MDF Gespoten - greeploos", "frontdikte": "18mm",
-              "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "DAVE": {"titel": "Keukenrenovatie model Dave", "materiaal": "MDF Gespoten - 70mm kader", "frontdikte": "18mm",
-             "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "JOLIE": {"titel": "Keukenrenovatie model Jolie", "materiaal": "MDF Gespoten - 25mm kader", "frontdikte": "18mm",
-              "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "DEX": {"titel": "Keukenrenovatie model Dex", "materiaal": "MDF Gespoten - V-groef 100mm", "frontdikte": "18mm",
-            "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "NOAH": {"titel": "Keukenrenovatie model Noah", "materiaal": "MDF Gespoten - vlak", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "FEDDE": {"titel": "Keukenrenovatie model Fedde", "materiaal": "MDF Gespoten - greeploos", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "DAVE": {"titel": "Keukenrenovatie model Dave", "materiaal": "MDF Gespoten - 70mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "JOLIE": {"titel": "Keukenrenovatie model Jolie", "materiaal": "MDF Gespoten - 25mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "DEX": {"titel": "Keukenrenovatie model Dex", "materiaal": "MDF Gespoten - V-groef 100mm", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
 
-    "JACK": {"titel": "Keukenrenovatie model Jack", "materiaal": "Eiken fineer - vlak", "frontdikte": "19mm",
-             "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "JAMES": {"titel": "Keukenrenovatie model James", "materiaal": "Eiken fineer - 10mm massief kader", "frontdikte": "19mm",
-              "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "CHIEL": {"titel": "Keukenrenovatie model Chiel", "materiaal": "Eiken fineer - greeploos", "frontdikte": "19mm",
-              "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "JACK": {"titel": "Keukenrenovatie model Jack", "materiaal": "Eiken fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "JAMES": {"titel": "Keukenrenovatie model James", "materiaal": "Eiken fineer - 10mm massief kader", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "CHIEL": {"titel": "Keukenrenovatie model Chiel", "materiaal": "Eiken fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
 
-    "SAM": {"titel": "Keukenrenovatie model Sam", "materiaal": "Noten fineer - vlak", "frontdikte": "19mm",
-            "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm",
-             "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "SAM": {"titel": "Keukenrenovatie model Sam", "materiaal": "Noten fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
 }
-
 
 def bepaal_model(g2, h2):
     mapping = {
@@ -127,19 +139,11 @@ def lees_excel(path):
 
     klantregels = []
     for r in range(1, 6):
-        waarde = df.iloc[r, 10]
-        if pd.notna(waarde):
-            klantregels.append(str(waarde))
+        if pd.notna(df.iloc[r, 10]):
+            klantregels.append(str(df.iloc[r, 10]))
 
-    try:
-        scharnieren = int(df.iloc[2, 9]) if not pd.isna(df.iloc[2, 9]) else 0
-    except:
-        scharnieren = 0
-
-    try:
-        lades = int(df.iloc[4, 9]) if not pd.isna(df.iloc[4, 9]) else 0
-    except:
-        lades = 0
+    scharnieren = int(df.iloc[2, 9]) if pd.notna(df.iloc[2, 9]) else 0
+    lades = int(df.iloc[4, 9]) if pd.notna(df.iloc[4, 9]) else 0
 
     project = os.path.splitext(os.path.basename(path))[0]
 
@@ -150,7 +154,12 @@ def lees_excel(path):
 # 🧮 BEREKENINGEN
 # ======================================================
 
+def euro(x):
+    return f"€ {x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
 def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades):
+
     info = MODEL_INFO[model]
 
     fronts = sum(o in ["DEUR", "LADE", "BEDEKKINGSPANEEL"] for o in onderdelen)
@@ -177,6 +186,7 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
     )
 
     btw = totaal_excl * 0.21
+    totaal_incl = totaal_excl + btw
 
     return {
         "project": project,
@@ -185,32 +195,33 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         "materiaal": info["materiaal"],
         "klantgegevens": klantregels,
         "fronts": fronts,
-        "prijs_per_front": info["prijs_per_front"],
-        "materiaal_totaal": materiaal_totaal,
         "toeslag_passtuk": passtuk_kosten,
         "toeslag_anders": anders_kosten,
-        "montage": montage,
+        "prijs_per_front": info["prijs_per_front"],
         "scharnieren": scharnieren,
         "scharnier_totaal": scharnier_totaal,
         "lades": lades,
         "lades_totaal": lades_totaal,
+        "materiaal_totaal": materiaal_totaal,
+        "montage": montage,
         "totaal_excl": totaal_excl,
         "btw": btw,
-        "totaal_incl": totaal_excl + btw,
+        "totaal_incl": totaal_incl,
     }
 
 
 # ======================================================
-# 🧾 OFFERTE BOUWEN
+# 🧾 TEAMLEADER OFFERTE AANMAKEN
 # ======================================================
 
 def maak_teamleader_offerte(deal_id, data, mode):
 
+    url = f"{API_BASE}/quotations.create"
+
     model = data["model"]
-    cfg = FRONT_DESCRIPTION_CONFIG[model]
+    cfg = FRONT_DESCRIPTION_CONFIG.get(model)
     fronts = data["fronts"]
 
-    # Klantgegevens formatteren
     klantregels = data["klantgegevens"] + ["", "", "", "", ""]
     klanttekst = (
         f"Naam: {klantregels[0]}\r\n"
@@ -222,9 +233,10 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # -------------------------
-    # SECTIE 1 — KLANTGEGEVENS
-    # -------------------------
+    # =====================================================
+    # ✨ EERSTE REGEL: KLANTGEGEVENS
+    # =====================================================
+
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
         "line_items": [
@@ -238,25 +250,24 @@ def maak_teamleader_offerte(deal_id, data, mode):
         ],
     })
 
-    # -------------------------
+    # =====================================================
     # PARTICULIER
-    # -------------------------
+    # =====================================================
+
     if mode == "P":
 
         tekst = []
-
-        # Toevoegingen achter aantal fronten
-        extra = []
+        front_toevoegingen = []
 
         if data["toeslag_passtuk"] > 0:
-            extra.append("inclusief passtukken en/of plinten")
+            front_toevoegingen.append("inclusief passtukken en/of plinten")
 
         if data["toeslag_anders"] > 0:
-            extra.append("inclusief licht- en/of sierlijsten")
+            front_toevoegingen.append("inclusief licht- en/of sierlijsten")
 
-        toevoeging = f" ({', '.join(extra)})" if extra else ""
+        extra_text = f" ({', '.join(front_toevoegingen)})" if front_toevoegingen else ""
 
-        tekst.append(f"Aantal fronten: {fronts} fronten{toevoeging}")
+        tekst.append(f"Aantal fronten: {fronts} fronten{extra_text}")
         tekst.append(f"Materiaal: {cfg['materiaal']}")
         tekst.append(f"Frontdikte: {cfg['frontdikte']}")
         tekst.append(f"Kleur: {data['kleur']}")
@@ -299,11 +310,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # -------------------------
+    # =====================================================
     # DEALER
-    # -------------------------
-    else:
+    # =====================================================
 
+    else:
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
 
         section["line_items"].append({
@@ -345,9 +356,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         grouped_lines.append(section)
 
-        # ACCESSOIRES
         if data["scharnieren"] > 0 or data["lades"] > 0:
-
             acc = {"section": {"title": "ACCESSOIRES"}, "line_items": []}
 
             if data["scharnieren"] > 0:
@@ -370,7 +379,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
             grouped_lines.append(acc)
 
-        # INMETEN, LEVEREN & MONTEREN
         grouped_lines.append({
             "section": {"title": "INMETEN, LEVEREN & MONTEREN"},
             "line_items": [
@@ -398,18 +406,16 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # PAYLOAD
     payload = {
         "deal_id": deal_id,
         "currency": {"code": "EUR", "exchange_rate": 1.0},
         "grouped_lines": grouped_lines,
-        "text": "\u200b",
+        "text": "\u200b"
     }
 
-    # VERSTUREN
-    token = get_access_token()
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    resp = request_with_auto_refresh("POST", url, json_data=payload)
 
-    resp = requests.post(f"{API_BASE}/quotations.create", json=payload, headers=headers)
+    if resp.status_code not in (200, 201):
+        raise Exception(f"Offerte NIET aangemaakt: {resp.text}")
 
-    return resp.status_code, resp.text
+    return True

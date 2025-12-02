@@ -20,8 +20,10 @@ CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # moet leeg zijn bij eerste login!
 
+# Correcte redirect voor Streamlit (geen /callback!)
 REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
 
+# Teamleader OAuth endpoints
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
@@ -35,9 +37,9 @@ if "code" in params:
     st.subheader("Teamleader koppeling")
 
     code = params["code"][0]
-
     st.info("Bezig met ophalen van tokens…")
 
+    # Token exchange — Teamleader Focus geeft refresh_token ZONDER offline_access
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -57,29 +59,30 @@ if "code" in params:
     refresh_token = tokens.get("refresh_token")
 
     if not refresh_token:
-        st.error("❌ Geen refresh_token ontvangen. Controleer of je offline_access hebt ingesteld!")
+        st.error("❌ Geen refresh_token ontvangen van Teamleader. Controleer je app-instellingen.")
         st.stop()
 
-    st.success("✅ Refresh token ontvangen!")
+    st.success("✅ Refresh token succesvol ontvangen!")
     st.markdown("**➡️ Zet deze nu in Railway → Variables → `REFRESH_TOKEN`**")
     st.code(refresh_token)
 
-    st.info("Na opslaan in Railway, ververs deze pagina en de koppeling is actief.")
+    st.info("Ververs daarna de pagina — jouw koppeling is actief.")
     st.stop()
 
 
 # ======================================================
-# 🔐 2. LOGIN KNOP (alleen als er GEEN refresh token is)
+# 🔐 2. LOGIN KNOP (alleen zichtbaar als REFRESH_TOKEN leeg is)
 # ======================================================
 if not REFRESH_TOKEN:
     st.warning("⚠️ Je bent nog niet gekoppeld met Teamleader. Klik hieronder om te verbinden.")
 
     if st.button("🔐 Verbind met Teamleader"):
+        # ✔️ FIXED: offline_access scope verwijderd — Teamleader Focus ondersteunt het niet.
         params = {
             "client_id": CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
             "response_type": "code",
-            "scope": "offline_access companies contacts deals products quotations projects invoices",
+            "scope": "companies contacts deals products quotations projects invoices",
         }
         login_url = f"{AUTH_BASE}?{urlencode(params)}"
         st.markdown(f"[👉 Klik hier om in te loggen bij Teamleader]({login_url})")

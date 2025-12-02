@@ -5,6 +5,14 @@
 import streamlit as st
 import os
 
+# === Teamleader secrets ophalen vanuit Streamlit Cloud ===
+CLIENT_ID = st.secrets["CLIENT_ID"]
+CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+
+# We geven deze waarden door aan je bestaande script via environment variables
+os.environ["CLIENT_ID"] = CLIENT_ID
+os.environ["CLIENT_SECRET"] = CLIENT_SECRET
+
 # We halen de functies uit jouw bestaande script
 import inmeetverwerker_hellofront as hf
 

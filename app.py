@@ -20,7 +20,7 @@ CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
-REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/callback"
+REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
 
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"

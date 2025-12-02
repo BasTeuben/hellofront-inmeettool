@@ -87,7 +87,7 @@ if uploaded_file is not None:
         st.markdown("### 🔍 Technische response van Teamleader")
         st.code(response_text)
 
-        if "quotation_id" in str(response_text) or "created" in str(response_text).lower():
+       if '"type":"quotation"' in response_text or '"type": "quotation"' in response_text:
             st.success("✅ Offerte is aangemaakt in Teamleader! Controleer de deal in Teamleader.")
         else:
             st.error("❌ Teamleader gaf geen geldige bevestiging. Controleer de response hierboven.")

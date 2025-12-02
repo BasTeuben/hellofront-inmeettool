@@ -18,7 +18,7 @@ st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Te
 # ======================================================
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # moet leeg zijn bij eerste login!
 
 REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
 
@@ -27,12 +27,12 @@ TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
 
 # ======================================================
-# 🔐 1. HANDLE CALLBACK (Authorization code ontvangen)
+# 🔐 1. HANDLE TEAMLEADER CALLBACK VIA QUERY PARAM
 # ======================================================
 params = st.experimental_get_query_params()
 
 if "code" in params:
-    st.subheader("🔐 Teamleader koppeling")
+    st.subheader("Teamleader koppeling")
 
     code = params["code"][0]
 
@@ -57,20 +57,19 @@ if "code" in params:
     refresh_token = tokens.get("refresh_token")
 
     if not refresh_token:
-        st.error("❌ Geen refresh_token ontvangen. Controleer of je `offline_access` in de scopes hebt!")
+        st.error("❌ Geen refresh_token ontvangen. Controleer of je offline_access hebt ingesteld!")
         st.stop()
 
     st.success("✅ Refresh token ontvangen!")
-
     st.markdown("**➡️ Zet deze nu in Railway → Variables → `REFRESH_TOKEN`**")
     st.code(refresh_token)
 
-    st.info("Na opslaan kun je deze pagina verversen en is de koppeling actief.")
+    st.info("Na opslaan in Railway, ververs deze pagina en de koppeling is actief.")
     st.stop()
 
 
 # ======================================================
-# 🔐 2. LOGIN KNOP (als je nog géén refresh token hebt)
+# 🔐 2. LOGIN KNOP (alleen als er GEEN refresh token is)
 # ======================================================
 if not REFRESH_TOKEN:
     st.warning("⚠️ Je bent nog niet gekoppeld met Teamleader. Klik hieronder om te verbinden.")
@@ -89,7 +88,7 @@ if not REFRESH_TOKEN:
 
 
 # ======================================================
-# 📤 3. TEAMLEADER IS VERBONDEN — NU NORMALE TOOL
+# 🟢 3. TEAMLEADER IS VERBONDEN → START REGULIERE TOOL
 # ======================================================
 uploaded_file = st.file_uploader("Kies een Excel-bestand (.xlsx)", type=["xlsx"])
 

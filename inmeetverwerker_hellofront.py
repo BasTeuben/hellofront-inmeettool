@@ -11,6 +11,7 @@ load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")  # wordt op Streamlit gezet via Secrets
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
@@ -26,24 +27,34 @@ VRACHT = 60.00
 PRIJS_SCHARNIER = 6.5
 PRIJS_LADE = 184.0
 
+
 # ======================================================
-# 🔐 NIEUW: ACCESS TOKEN OPHALEN (VOOR STREAMLIT)
+# 🔐 ACCESS TOKEN VIA REFRESH TOKEN
 # ======================================================
 
 def get_access_token():
-    """Haalt een geldig access_token op via client_credentials flow."""
+    """
+    Haalt een nieuw access_token op via het REFRESH_TOKEN.
+    Werkt zowel lokaal (via .env) als op Streamlit (via Secrets).
+    """
+    if not CLIENT_ID or not CLIENT_SECRET or not REFRESH_TOKEN:
+        raise Exception("CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN ontbreken in de omgeving.")
+
     data = {
-        "grant_type": "client_credentials",
+        "grant_type": "refresh_token",
         "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
+        "client_secret": CLIENT_SECRET,
+        "refresh_token": REFRESH_TOKEN,
     }
 
     resp = requests.post(TOKEN_URL, data=data)
 
     if resp.status_code != 200:
+        # Deze tekst zie je nu in Streamlit, zodat we precies weten wat Teamleader terugstuurt
         raise Exception(f"Kon geen access token ophalen: {resp.text}")
 
-    return resp.json().get("access_token")
+    body = resp.json()
+    return body.get("access_token")
 
 
 # ======================================================
@@ -97,6 +108,7 @@ def bepaal_model(g2, h2):
     }
     return mapping.get((str(g2).strip(), str(h2).strip()), None)
 
+
 # ======================================================
 # 📥 EXCEL UITLEZEN
 # ======================================================
@@ -108,7 +120,7 @@ def lees_excel(path):
 
     g2 = df.iloc[1, 6]
     h2 = df.iloc[1, 7]
-    kleur = df.iloc[1, 8]
+    kleur = df.iloc[1, 8]  # I2
 
     klantregels = []
     for r in range(1, 6):
@@ -116,11 +128,13 @@ def lees_excel(path):
         if pd.notna(waarde):
             klantregels.append(str(waarde))
 
+    # Scharnieren J3 = row 2 col 9
     try:
         scharnieren = int(df.iloc[2, 9]) if not pd.isna(df.iloc[2, 9]) else 0
     except:
         scharnieren = 0
 
+    # Maatwerk lades J5 = row 4 col 9
     try:
         lades = int(df.iloc[4, 9]) if not pd.isna(df.iloc[4, 9]) else 0
     except:
@@ -130,11 +144,13 @@ def lees_excel(path):
 
     return onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project
 
+
 # ======================================================
 # 🧮 BEREKENINGEN
 # ======================================================
 
 def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades):
+
     info = MODEL_INFO[model]
 
     fronts = sum(o in ["DEUR", "LADE", "BEDEKKINGSPANEEL"] for o in onderdelen)
@@ -184,12 +200,12 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         "totaal_incl": totaal_incl,
     }
 
+
 # ======================================================
 # 🧾 TEAMLEADER OFFERTE AANMAKEN
 # ======================================================
 
 def maak_teamleader_offerte(deal_id, data, mode):
-    """Maakt een offerte aan in Teamleader en retourneert de HTTP response."""
 
     url = f"{API_BASE}/quotations.create"
 
@@ -197,7 +213,8 @@ def maak_teamleader_offerte(deal_id, data, mode):
     cfg = FRONT_DESCRIPTION_CONFIG.get(model)
     fronts = data["fronts"]
 
-    klantregels = data["klantgegevens"] + ["","","","",""]
+    # Bouw klanttekst
+    klantregels = data["klantgegevens"] + ["", "", "", "", ""]  # voorkom indexfouten
 
     klanttekst = (
         f"Naam: {klantregels[0]}\r\n"
@@ -209,9 +226,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # ----------------------
     # KLANTGEGEVENS
-    # ----------------------
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
         "line_items": [
@@ -225,22 +240,20 @@ def maak_teamleader_offerte(deal_id, data, mode):
         ],
     })
 
-    # ----------------------
     # PARTICULIER
-    # ----------------------
     if mode == "P":
 
         tekst = []
 
-        aanvullingen = []
+        front_toevoegingen = []
         if data["toeslag_passtuk"] > 0:
-            aanvullingen.append("inclusief passtukken en/of plinten")
+            front_toevoegingen.append("inclusief passtukken en/of plinten")
         if data["toeslag_anders"] > 0:
-            aanvullingen.append("inclusief licht- en/of sierlijsten")
+            front_toevoegingen.append("inclusief licht- en/of sierlijsten")
 
-        toevoeging = f" ({', '.join(aanvullingen)})" if aanvullingen else ""
+        extra_text = f" ({', '.join(front_toevoegingen)})" if front_toevoegingen else ""
 
-        tekst.append(f"Aantal fronten: {fronts} fronten{toevoeging}")
+        tekst.append(f"Aantal fronten: {fronts} fronten{extra_text}")
         tekst.append(f"Materiaal: {cfg['materiaal']}")
         tekst.append(f"Frontdikte: {cfg['frontdikte']}")
         tekst.append(f"Kleur: {data['kleur']}")
@@ -283,9 +296,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # ----------------------
     # DEALER
-    # ----------------------
     else:
 
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
@@ -380,26 +391,20 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # ======================================================
-    # PAYLOAD BOUWEN
-    # ======================================================
-
+    # Payload
     payload = {
         "deal_id": deal_id,
         "currency": {"code": "EUR", "exchange_rate": 1.0},
         "grouped_lines": grouped_lines,
-        "text": "\u200b"
+        "text": "\u200b",  # lege begeleidende tekst
     }
 
-    # ======================================================
-    # VERSTUREN MET GELDIGE TOKEN
-    # ======================================================
-
+    # Access token + headers
     token = get_access_token()
 
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     resp = requests.post(url, json=payload, headers=headers)

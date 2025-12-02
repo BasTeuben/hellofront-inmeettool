@@ -18,10 +18,12 @@ st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Te
 # ======================================================
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # moet leeg zijn bij eerste login!
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # bij eerste login: leeg
 
-# Correcte redirect voor Streamlit (geen /callback!)
+# 🔥 Debug redirect: zeer belangrijk om de invalid_client fout op te sporen
 REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
+
+st.write("DEBUG — REDIRECT_URI (zoals code denkt):", REDIRECT_URI)
 
 # Teamleader OAuth endpoints
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
@@ -39,7 +41,7 @@ if "code" in params:
     code = params["code"][0]
     st.info("Bezig met ophalen van tokens…")
 
-    # Token exchange — Teamleader Focus geeft refresh_token ZONDER offline_access
+    # Token exchange — Teamleader Focus geeft refresh_token zonder extra scopes
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -51,6 +53,8 @@ if "code" in params:
         }
     )
 
+    st.write("DEBUG — token exchange response:", resp.text)
+
     if resp.status_code != 200:
         st.error(f"❌ Ophalen tokens mislukt:\n\n{resp.text}")
         st.stop()
@@ -59,14 +63,14 @@ if "code" in params:
     refresh_token = tokens.get("refresh_token")
 
     if not refresh_token:
-        st.error("❌ Geen refresh_token ontvangen van Teamleader. Controleer je app-instellingen.")
+        st.error("❌ Geen refresh_token ontvangen van Teamleader. Controleer app-instellingen.")
         st.stop()
 
-    st.success("✅ Refresh token succesvol ontvangen!")
+    st.success("✅ Refresh token ontvangen!")
     st.markdown("**➡️ Zet deze nu in Railway → Variables → `REFRESH_TOKEN`**")
     st.code(refresh_token)
 
-    st.info("Ververs daarna de pagina — jouw koppeling is actief.")
+    st.info("Ververs de pagina — de koppeling is actief.")
     st.stop()
 
 
@@ -77,14 +81,19 @@ if not REFRESH_TOKEN:
     st.warning("⚠️ Je bent nog niet gekoppeld met Teamleader. Klik hieronder om te verbinden.")
 
     if st.button("🔐 Verbind met Teamleader"):
-        # ✔️ FIXED: offline_access scope verwijderd — Teamleader Focus ondersteunt het niet.
+        # laat zien wat we nu écht meesturen naar Teamleader
+        st.write("DEBUG — redirect die we meesturen:", REDIRECT_URI)
+
         params = {
             "client_id": CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
             "response_type": "code",
             "scope": "companies contacts deals products quotations projects invoices",
         }
+
         login_url = f"{AUTH_BASE}?{urlencode(params)}"
+        st.write("DEBUG — login URL:", login_url)
+
         st.markdown(f"[👉 Klik hier om in te loggen bij Teamleader]({login_url})")
 
     st.stop()

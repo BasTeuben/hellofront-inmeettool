@@ -2,16 +2,30 @@ import pandas as pd
 import requests
 import os
 import json
-from dotenv import load_dotenv
+
+# Streamlit-secrets gebruiken als we online draaien
+try:
+    import streamlit as st
+    USING_STREAMLIT = True
+except:
+    USING_STREAMLIT = False
 
 # ======================================================
 # 🔧 TEAMLEADER CONFIG
 # ======================================================
-load_dotenv()
 
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-TOKEN_FILE = "teamleader_token.json"
+if USING_STREAMLIT:
+    # ONLINE op Streamlit Cloud
+    CLIENT_ID = st.secrets["CLIENT_ID"]
+    CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+    REFRESH_TOKEN = st.secrets["REFRESH_TOKEN"]
+else:
+    # LOKAAL op jouw Mac (gebruikt teamleader_token.json)
+    from dotenv import load_dotenv
+    load_dotenv()
+    CLIENT_ID = os.getenv("CLIENT_ID")
+    CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+    TOKEN_FILE = "teamleader_token.json"
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
@@ -27,81 +41,73 @@ VRACHT = 60.00
 PRIJS_SCHARNIER = 6.5
 PRIJS_LADE = 184.0
 
+
 # ======================================================
-# 🔒 TOKEN MANAGEMENT (AUTO REFRESH)
+# 🔑 TOKEN MANAGEMENT (NIEUWE CLOUD-METHODE)
 # ======================================================
 
-def read_tokens():
-    if not os.path.exists(TOKEN_FILE):
-        return None
-    try:
-        with open(TOKEN_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return None
+def get_access_token():
+    """
+    Haalt altijd een nieuwe access token op via refresh_token.
+    Dit werkt 100% zowel lokaal als online.
+    """
 
+    # Als we lokaal zijn → gebruik originele refresh token uit bestand
+    if not USING_STREAMLIT:
+        if not os.path.exists(TOKEN_FILE):
+            print("❌ Geen lokaal tokenbestand gevonden.")
+            return None
 
-def save_tokens(tokens: dict):
-    with open(TOKEN_FILE, "w") as f:
-        json.dump(tokens, f, indent=2)
+        try:
+            with open(TOKEN_FILE, "r") as f:
+                data = json.load(f)
+                refresh_token = data.get("refresh_token")
+        except:
+            print("❌ Kon lokaal refresh_token niet lezen.")
+            return None
+    else:
+        # Online via Streamlit secrets
+        refresh_token = REFRESH_TOKEN
 
-
-def refresh_access_token():
-    tokens = read_tokens()
-    if not tokens:
-        print("❌ Geen tokenbestand gevonden.")
-        return None
-
-    refresh_token = tokens.get("refresh_token")
-    if not refresh_token:
-        print("❌ Geen refresh_token gevonden.")
-        return None
-
-    print("🔄 Access token verlopen — vernieuwen...")
-
-    data = {
+    payload = {
         "grant_type": "refresh_token",
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
         "refresh_token": refresh_token,
     }
 
-    resp = requests.post(TOKEN_URL, data=data)
+    resp = requests.post(TOKEN_URL, data=payload)
 
     if resp.status_code != 200:
-        print("❌ Fout bij vernieuwen access_token:")
+        print("❌ Fout bij ophalen access_token:")
         print(resp.text)
         return None
 
     new_tokens = resp.json()
-    save_tokens(new_tokens)
-    print("🔄 Nieuwe access_token opgeslagen!")
+
+    # Lokaal → opslaan zoals voorheen
+    if not USING_STREAMLIT:
+        with open(TOKEN_FILE, "w") as f:
+            json.dump(new_tokens, f, indent=2)
+
     return new_tokens.get("access_token")
 
 
 def request_with_auto_refresh(method: str, url: str, json_data=None, files=None):
-    tokens = read_tokens()
-    if not tokens:
-        print("❌ Geen tokens gevonden.")
+    """
+    Nieuwe versie: we halen altijd een verse access_token op via refresh_token.
+    """
+
+    token = get_access_token()
+    if not token:
+        print("❌ Geen geldige access_token beschikbaar.")
         return None
 
-    access_token = tokens.get("access_token")
-
-    headers = {"Authorization": f"Bearer {access_token}"}
+    headers = {"Authorization": f"Bearer {token}"}
     if not files:
         headers["Content-Type"] = "application/json"
 
     resp = requests.request(method, url, headers=headers, json=json_data, files=files)
-
-    if resp.status_code == 401:
-        new_token = refresh_access_token()
-        if not new_token:
-            return None
-
-        headers["Authorization"] = f"Bearer {new_token}"
-
-        resp = requests.request(method, url, headers=headers, json=json_data, files=files)
-
     return resp
 
 
@@ -156,9 +162,9 @@ def bepaal_model(g2, h2):
     }
     return mapping.get((str(g2).strip(), str(h2).strip()), None)
 
-
 # ======================================================
 # 📥 EXCEL UITLEZEN
+# (GEWIJZIGD? → Nee)
 # ======================================================
 
 def lees_excel(path):
@@ -168,7 +174,7 @@ def lees_excel(path):
 
     g2 = df.iloc[1, 6]
     h2 = df.iloc[1, 7]
-    kleur = df.iloc[1, 8]  # I2
+    kleur = df.iloc[1, 8]
 
     klantregels = []
     for r in range(1, 6):
@@ -176,13 +182,11 @@ def lees_excel(path):
         if pd.notna(waarde):
             klantregels.append(str(waarde))
 
-    # Scharnieren J3 = row 2 col 9
     try:
         scharnieren = int(df.iloc[2, 9]) if not pd.isna(df.iloc[2, 9]) else 0
     except:
         scharnieren = 0
 
-    # Maatwerk lades J5 = row 4 col 9
     try:
         lades = int(df.iloc[4, 9]) if not pd.isna(df.iloc[4, 9]) else 0
     except:
@@ -194,7 +198,7 @@ def lees_excel(path):
 
 
 # ======================================================
-# 🧮 BEREKENINGEN
+# 🧮 BEREKENINGEN (ONGEWIJZIGD)
 # ======================================================
 
 def euro(x):
@@ -254,7 +258,7 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
 
 
 # ======================================================
-# 🧾 TEAMLEADER OFFERTE AANMAKEN
+# 🧾 TEAMLEADER OFFERTE AANMAKEN (LAATSTE DEEL GEWIJZIGD)
 # ======================================================
 
 def maak_teamleader_offerte(deal_id, data, mode):
@@ -265,10 +269,8 @@ def maak_teamleader_offerte(deal_id, data, mode):
     cfg = FRONT_DESCRIPTION_CONFIG.get(model)
     fronts = data["fronts"]
 
-    klanttekst = "\r\n".join(data["klantgegevens"])
-    # Bouw vaste layout voor klantgegevens
-    klantregels = data["klantgegevens"] + ["", "", "", "", ""]  # voorkomt indexfouten
-
+    # Bouw klantgegevens
+    klantregels = data["klantgegevens"] + ["", "", "", "", ""]
     klanttekst = (
         f"Naam: {klantregels[0]}\r\n"
         f"Adres: {klantregels[1]}\r\n"
@@ -279,12 +281,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # =====================================================
-    # ✨ EERSTE REGEL: KLANTGEGEVENS
-    # =====================================================
-# ================================================
-# 🔹 SECTIE: KLANTGEGEVENS
-# ================================================
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
         "line_items": [
@@ -298,31 +294,20 @@ def maak_teamleader_offerte(deal_id, data, mode):
         ],
     })
 
-    # =====================================================
-    # 🧍 PARTICULIER — 1 REGELITEM
-    # =====================================================
+    # PARTICULIER
     if mode == "P":
 
         tekst = []
 
-        # TOEVOEGINGEN ACHTER "AANTAL FRONTEN"
         front_toevoegingen = []
-
         if data["toeslag_passtuk"] > 0:
             front_toevoegingen.append("inclusief passtukken en/of plinten")
-
         if data["toeslag_anders"] > 0:
             front_toevoegingen.append("inclusief licht- en/of sierlijsten")
 
-        # Bouw de regel "Aantal fronten"
-        if front_toevoegingen:
-            extra_text = " (" + ", ".join(front_toevoegingen) + ")"
-        else:
-            extra_text = ""
+        extra_text = f" ({', '.join(front_toevoegingen)})" if front_toevoegingen else ""
 
         tekst.append(f"Aantal fronten: {fronts} fronten{extra_text}")
-
-        # BASIS-INFORMATIE
         tekst.append(f"Materiaal: {cfg['materiaal']}")
         tekst.append(f"Frontdikte: {cfg['frontdikte']}")
         tekst.append(f"Kleur: {data['kleur']}")
@@ -334,29 +319,21 @@ def maak_teamleader_offerte(deal_id, data, mode):
         tekst.append("")
         tekst.append("Prijs is inclusief:")
         tekst.append("- Demontage oude fronten & materialen")
-
-        # BASIS MONTAGEREGEL
         tekst.append("- Inmeten, leveren en montage van de fronten")
 
-        # EXTRA'S — ALLEEN WEERGEVEN ALS IN EXCEL AANWEZIG
         if data["toeslag_passtuk"] > 0:
             tekst.append("- Montage van passtukken en/of plinten")
-
         if data["toeslag_anders"] > 0:
             tekst.append("- Montage van licht- en/of sierlijsten")
 
         tekst.append("- Afvoeren van oude fronten")
 
-        # SCHARNIEREN + AANTAL
         if data["scharnieren"] > 0:
             tekst.append(f"- Inclusief vervangen scharnieren ({data['scharnieren']} stuks)")
-
-        # MAATWERK LADES + AANTAL
         if data["lades"] > 0:
             tekst.append(f"- Inclusief plaatsen maatwerk lades ({data['lades']} stuks)")
 
         final_text = "\r\n".join(tekst)
-
 
         grouped_lines.append({
             "section": {"title": "KEUKENRENOVATIE"},
@@ -371,12 +348,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # =====================================================
-    # 🏭 DEALER — MEERDERE REGELS
-    # =====================================================
+    # DEALER (ONVERANDERD)
     else:
 
-        # KEUKENRENOVATIE
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
 
         section["line_items"].append({
@@ -418,7 +392,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         grouped_lines.append(section)
 
-        # ACCESSOIRES
         if data["scharnieren"] > 0 or data["lades"] > 0:
 
             acc = {"section": {"title": "ACCESSOIRES"}, "line_items": []}
@@ -443,7 +416,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
             grouped_lines.append(acc)
 
-        # INMETEN, LEVEREN & MONTEREN
         grouped_lines.append({
             "section": {"title": "INMETEN, LEVEREN & MONTEREN"},
             "line_items": [
@@ -475,30 +447,20 @@ def maak_teamleader_offerte(deal_id, data, mode):
         "deal_id": deal_id,
         "currency": {"code": "EUR", "exchange_rate": 1.0},
         "grouped_lines": grouped_lines,
-        "text": "\u200b",  # begeleidende tekst leeg houden
+        "text": "\u200b",
     }
 
-    print("\n📨 VERZONDEN PAYLOAD:")
-    print(json.dumps(payload, indent=2))
-   
     resp = request_with_auto_refresh("POST", url, json_data=payload)
 
-    # Geen response? (bijv. token-bestand ontbreekt)
+    # NIEUWE REGEL: GEEF ALTIJD RESPONSE TERUG
     if not resp:
-        print("❌ Geen response!")
-        return None
+        return "❌ Geen response van server"
 
-    print("➡️ STATUS:", resp.status_code)
-    print("➡️ RESPONSE:", resp.text)
-
-    # Geef ALTIJD de raw API-response terug aan app.py
-    # Zo kan Streamlit het laten zien in de browser
     return resp.text
 
 
-
 # ======================================================
-# 🚀 MAIN
+# 🚀 MAIN (niet gebruikt door Streamlit)
 # ======================================================
 
 if __name__ == "__main__":
@@ -514,32 +476,17 @@ if __name__ == "__main__":
     data = bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
 
     print("\n📋 SAMENVATTING")
-    print("──────────────────────────────────────────")
-    print(f"Project:               {data['project']}")
-    print(f"Model:                 {data['model']}")
-    print(f"Materiaal:             {data['materiaal']}")
-    print(f"Kleur:                 {data['kleur']}")
-    print(f"Fronten:               {data['fronts']}")
-    print(f"Scharnieren:           {data['scharnieren']} × € {PRIJS_SCHARNIER} = {euro(data['scharnier_totaal'])}")
-    print(f"Maatwerk lades:        {data['lades']} × € {PRIJS_LADE} = {euro(data['lades_totaal'])}")
-    print("──────────────────────────────────────────")
-    print(f"Aantal fronten:        {data['fronts']} × {euro(data['prijs_per_front'])} = {euro(data['materiaal_totaal'])}")
-    print(f"Plinten/passtukken:    {'Ja' if data['toeslag_passtuk'] else 'Nee'} - {euro(data['toeslag_passtuk'])}")
-    print(f"Licht- & sierlijsten:  {'Ja' if data['toeslag_anders'] else 'Nee'} - {euro(data['toeslag_anders'])}")
-    print(f"Montage:               {data['fronts']} × {euro(MONTAGE_PER_FRONT)} = {euro(data['montage'])}")
-    print(f"Inmeten:               {euro(INMETEN)}")
-    print(f"Vracht/verpakking:     {euro(VRACHT)}")
-    print("──────────────────────────────────────────")
-    print(f"Totaal excl. btw:      {euro(data['totaal_excl'])}")
-    print(f"BTW (21%):             {euro(data['btw'])}")
-    print(f"Totaal incl. btw:      {euro(data['totaal_incl'])}")
-    print("──────────────────────────────────────────")
+    print("───────────────────────────────")
+    print(f"Project: {data['project']}")
+    print(f"Model: {data['model']}")
+    print(f"Fronten: {data['fronts']}")
+    print("───────────────────────────────")
 
     if input("Wil je uploaden naar Teamleader? (ja/nee): ").lower() != "ja":
-        print("❌ Afgebroken.")
         exit()
 
-    mode = input("Uploaden als Dealer (D) of Particulier (P)? ").strip().upper()
-    deal_id = input("Teamleader deal-ID: ").strip()
+    mode = input("Dealer (D) of Particulier (P)? ").strip().upper()
+    deal_id = input("Deal-ID: ").strip()
 
-    maak_teamleader_offerte(deal_id, data, mode)
+    antwoord = maak_teamleader_offerte(deal_id, data, mode)
+    print(antwoord)

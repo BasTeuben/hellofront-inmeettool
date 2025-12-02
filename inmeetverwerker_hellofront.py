@@ -480,21 +480,21 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     print("\n📨 VERZONDEN PAYLOAD:")
     print(json.dumps(payload, indent=2))
-
+   
     resp = request_with_auto_refresh("POST", url, json_data=payload)
 
+    # Geen response? (bijv. token-bestand ontbreekt)
     if not resp:
         print("❌ Geen response!")
-        return
+        return None
 
     print("➡️ STATUS:", resp.status_code)
     print("➡️ RESPONSE:", resp.text)
 
-    if resp.status_code not in (200, 201):
-        print("❌ Offerte NIET aangemaakt.")
-        return
+    # Geef ALTIJD de raw API-response terug aan app.py
+    # Zo kan Streamlit het laten zien in de browser
+    return resp.text
 
-    print("✅ Offerte aangemaakt!")
 
 
 # ======================================================

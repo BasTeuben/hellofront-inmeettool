@@ -27,6 +27,26 @@ PRIJS_SCHARNIER = 6.5
 PRIJS_LADE = 184.0
 
 # ======================================================
+# 🔐 NIEUW: ACCESS TOKEN OPHALEN (VOOR STREAMLIT)
+# ======================================================
+
+def get_access_token():
+    """Haalt een geldig access_token op via client_credentials flow."""
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET
+    }
+
+    resp = requests.post(TOKEN_URL, data=data)
+
+    if resp.status_code != 200:
+        raise Exception(f"Kon geen access token ophalen: {resp.text}")
+
+    return resp.json().get("access_token")
+
+
+# ======================================================
 # 🧮 MODEL- EN PRIJSLOGICA
 # ======================================================
 
@@ -169,6 +189,8 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
 # ======================================================
 
 def maak_teamleader_offerte(deal_id, data, mode):
+    """Maakt een offerte aan in Teamleader en retourneert de HTTP response."""
+
     url = f"{API_BASE}/quotations.create"
 
     model = data["model"]
@@ -187,6 +209,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
+    # ----------------------
+    # KLANTGEGEVENS
+    # ----------------------
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
         "line_items": [
@@ -200,17 +225,20 @@ def maak_teamleader_offerte(deal_id, data, mode):
         ],
     })
 
+    # ----------------------
+    # PARTICULIER
+    # ----------------------
     if mode == "P":
+
         tekst = []
 
-        extra = []
-
+        aanvullingen = []
         if data["toeslag_passtuk"] > 0:
-            extra.append("inclusief passtukken en/of plinten")
+            aanvullingen.append("inclusief passtukken en/of plinten")
         if data["toeslag_anders"] > 0:
-            extra.append("inclusief licht- en/of sierlijsten")
+            aanvullingen.append("inclusief licht- en/of sierlijsten")
 
-        toevoeging = f" ({', '.join(extra)})" if extra else ""
+        toevoeging = f" ({', '.join(aanvullingen)})" if aanvullingen else ""
 
         tekst.append(f"Aantal fronten: {fronts} fronten{toevoeging}")
         tekst.append(f"Materiaal: {cfg['materiaal']}")
@@ -255,7 +283,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
+    # ----------------------
+    # DEALER
+    # ----------------------
     else:
+
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
 
         section["line_items"].append({
@@ -348,6 +380,10 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
+    # ======================================================
+    # PAYLOAD BOUWEN
+    # ======================================================
+
     payload = {
         "deal_id": deal_id,
         "currency": {"code": "EUR", "exchange_rate": 1.0},
@@ -355,6 +391,17 @@ def maak_teamleader_offerte(deal_id, data, mode):
         "text": "\u200b"
     }
 
-    resp = requests.post(url, json=payload)
+    # ======================================================
+    # VERSTUREN MET GELDIGE TOKEN
+    # ======================================================
+
+    token = get_access_token()
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.post(url, json=payload, headers=headers)
 
     return resp

@@ -11,7 +11,7 @@ import inmeetverwerker_hellofront as hf
 
 CLIENT_ID = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
-REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")  # eerste keer als fallback
+REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")  # fallback voor eerste login
 
 REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
@@ -133,7 +133,7 @@ if uploaded_file:
     st.write(f"**Kleur:** {data['kleur']}")
     st.write(f"**Aantal fronten:** {data['fronts']}")
     st.write(f"**Scharnieren:** {data['scharnieren']}")
-    st.write(f**Lades:** {data['lades']}")
+    st.write(f"**Lades:** {data['lades']}")
     st.write(f"**Totaal excl. btw:** € {data['totaal_excl']:.2f}")
     st.write(f"**Totaal incl. btw:** € {data['totaal_incl']:.2f}")
 

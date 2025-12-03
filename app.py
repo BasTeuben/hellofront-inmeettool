@@ -11,7 +11,7 @@ import inmeetverwerker_hellofront as hf
 
 CLIENT_ID = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
-REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")  # fallback voor eerste login
+REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
 REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
@@ -52,29 +52,22 @@ if auth_code:
 
     if not new_refresh:
         st.error("❌ Geen refresh_token ontvangen van Teamleader.")
-        st.write("Ontvangen response:", tokens)
+        st.write(tokens)
         st.stop()
 
-    st.success("✅ Nieuwe refresh_token ontvangen!")
+    st.success("✅ Nieuwe refresh token ontvangen!")
     st.code(new_refresh)
 
-    st.info("➡ Plaats deze refresh token in Railway → Variables → REFRESH_TOKEN en redeploy daarna.")
+    st.info("➡ Zet deze refresh token in Railway → Variables → REFRESH_TOKEN en redeploy daarna.")
     st.stop()
 
 
 # ======================================================
-# 3. LOGIN-BLOK — alleen tonen wanneer er GEEN refresh token is
+# 3. VERBORGEN LOGIN-KNOP (ALTIJD ZICHTBAAR, MAAR SUBTIEL)
 # ======================================================
-if not REFRESH_TOKEN:
-    st.subheader("Teamleader koppeling vereist")
 
-    if not CLIENT_ID or not CLIENT_SECRET:
-        st.error(
-            "CLIENT_ID of CLIENT_SECRET ontbreekt.\n\n"
-            "Controleer de Railway Variables en redeploy daarna."
-        )
-        st.stop()
-
+def render_hidden_login_button():
+    """Toont een onopvallende mini-login-knop onderaan de pagina."""
     params_login = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -83,9 +76,18 @@ if not REFRESH_TOKEN:
     }
     login_url = f"{AUTH_BASE}?{urlencode(params_login)}"
 
-    st.link_button("🔐 Verbind met Teamleader", login_url)
-    st.info("Log éénmalig in om de app te koppelen met Teamleader.")
-    st.stop()
+    st.markdown(
+        f"""
+        <div style="margin-top:50px; text-align:right; opacity:0.25; font-size:11px;">
+            <a href="{login_url}" style="color:#999; text-decoration:none;">
+                Teamleader opnieuw verbinden
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# render_hidden_login_button wordt straks helemaal onderaan de pagina aangeroepen.
 
 
 # ======================================================
@@ -106,27 +108,23 @@ if uploaded_file:
     temp_file.write(uploaded_file.read())
     temp_file.close()
 
-    # Excel inlezen
     try:
         onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
 
-    # Model bepalen
     model = hf.bepaal_model(g2, h2)
     if not model:
-        st.error(f"❌ Onbekend model op basis van G2='{g2}' en H2='{h2}'.")
+        st.error(f"❌ Onbekend model (G2='{g2}', H2='{h2}').")
         st.stop()
 
-    # Offerte berekenen
     try:
         data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
     except Exception as e:
-        st.error(f"❌ Fout tijdens berekenen van de offerte: {e}")
+        st.error(f"❌ Fout tijdens berekening van de offerte: {e}")
         st.stop()
 
-    # Samenvatting tonen
     st.subheader("Samenvatting")
     st.write(f"**Project:** {data['project']}")
     st.write(f"**Model:** {data['model']} ({data['materiaal']})")
@@ -147,6 +145,12 @@ if uploaded_file:
             hf.maak_teamleader_offerte(deal_id, data, mode)
             st.success("✅ Offerte succesvol aangemaakt in Teamleader!")
         except Exception as e:
-            st.error(f"❌ Er ging iets mis bij het aanmaken van de offerte:\n\n{e}")
+            st.error(f"❌ Fout bij aanmaken van de offerte:\n\n{e}")
+
 else:
-    st.info("Upload hierboven een Excel-bestand om te beginnen.")
+    st.info("Upload een Excel-bestand om te beginnen.")
+
+# ======================================================
+# 5. VERBORGEN LOGIN-KNOP WEERGEVEN (ONDERAAN)
+# ======================================================
+render_hidden_login_button()

@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import tempfile
 import requests
+from urllib.parse import urlencode
 import inmeetverwerker_hellofront as hf
 
 # ======================================================
@@ -10,18 +11,11 @@ import inmeetverwerker_hellofront as hf
 
 CLIENT_ID = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
-REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")  # Moet een geldige token bevatten!
+REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
-# Als REFRESH_TOKEN leeg is → app kan niet werken
-if not REFRESH_TOKEN:
-    st.set_page_config(page_title="HelloFront – Inmeet Tool", layout="centered")
-    st.title("HelloFront – Inmeet Tool")
-    st.error(
-        "❌ De Teamleader koppeling is nog niet geconfigureerd.\n\n"
-        "Er is **geen REFRESH_TOKEN** gevonden in Railway.\n"
-        "Voer de eenmalige OAuth-koppeling uit en vul daarna de REFRESH_TOKEN in Railway in."
-    )
-    st.stop()
+REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
+AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
+TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
 st.set_page_config(page_title="HelloFront – Inmeet Tool", layout="centered")
 
@@ -29,13 +23,67 @@ st.title("HelloFront – Inmeet Tool")
 st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Teamleader.")
 
 # ======================================================
-# 2. GEEN OAUTH MEER IN PRODUCTIE
+# 2. CALLBACK HANDLING (Teamleader → ?code=...)
 # ======================================================
-# Deze hele sectie is weggehaald zodat collega's nooit per ongeluk
-# refresh tokens overschrijven of de koppeling opnieuw starten.
+
+params = st.query_params
+auth_code = params.get("code", None)
+
+if auth_code:
+    st.subheader("Teamleader koppeling")
+    st.info("Authorisatiecode ontvangen, tokens worden opgehaald…")
+
+    data = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+    }
+
+    resp = requests.post(TOKEN_URL, data=data)
+
+    if resp.status_code != 200:
+        st.error(f"❌ Ophalen tokens mislukt:\n\n{resp.text}")
+        st.stop()
+
+    tokens = resp.json()
+    new_refresh = tokens.get("refresh_token")
+
+    if not new_refresh:
+        st.error("❌ Geen refresh_token ontvangen van Teamleader.")
+        st.stop()
+
+    st.success("✅ Nieuwe refresh_token ontvangen!")
+
+    st.markdown("➡ Zet deze nu in Railway bij `REFRESH_TOKEN`:")
+    st.code(new_refresh)
+
+    st.info("⚠️ Sla hem op in Railway → Redeploy → Daarna werkt alles automatisch.")
+    st.stop()
 
 # ======================================================
-# 3. VANAF HIER: APP IS GEKOPPELD → NORMAL APP FLOW
+# 3. LOGIN-BLOK — LOGIN KNOP ALTIJD ZICHTBAAR
+# ======================================================
+
+st.subheader("Teamleader koppeling")
+
+params_login = {
+    "client_id": CLIENT_ID,
+    "redirect_uri": REDIRECT_URI,
+    "response_type": "code",
+    "scope": "companies contacts deals products quotations projects invoices",
+}
+login_url = f"{AUTH_BASE}?{urlencode(params_login)}"
+
+st.link_button("🔐 (Opnieuw) verbinden met Teamleader", login_url)
+
+if not REFRESH_TOKEN:
+    st.warning("⚠️ Nog niet gekoppeld met Teamleader. Log eerst in om de app te gebruiken.")
+    st.stop()
+
+# ======================================================
+# 4. NORMALE APPLICATIEFLOW
 # ======================================================
 
 uploaded_file = st.file_uploader("Kies een Excel-bestand (.xlsx)", type=["xlsx"])
@@ -52,27 +100,23 @@ if uploaded_file:
     temp_file.write(uploaded_file.read())
     temp_file.close()
 
-    # Excel uitlezen
     try:
         onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
 
-    # Model bepalen
     model = hf.bepaal_model(g2, h2)
     if not model:
         st.error(f"❌ Onbekend model op basis van G2='{g2}' en H2='{h2}'.")
         st.stop()
 
-    # Berekeningen uitvoeren
     try:
         data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
     except Exception as e:
         st.error(f"❌ Fout tijdens berekenen van offerte: {e}")
         st.stop()
 
-    # Samenvatting tonen
     st.subheader("Samenvatting")
     st.write(f"**Project:** {data['project']}")
     st.write(f"**Model:** {data['model']} ({data['materiaal']})")

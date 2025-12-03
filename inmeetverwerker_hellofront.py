@@ -4,12 +4,12 @@ import os
 import json
 
 # ======================================================
-# 🔧 TEAMLEADER CONFIG — VIA RAILWAY / STREAMLIT SECRETS
+# 🔧 TEAMLEADER CONFIG — UIT RAILWAY VARIABLES
 # ======================================================
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- wordt pas gebruikt na login
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- vaste token, uit Railway
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
@@ -27,23 +27,26 @@ PRIJS_LADE = 184.0
 
 
 # ======================================================
-# 🔒 TOKEN MANAGEMENT VIA REFRESH_TOKEN
+# 🔒 VEILIGE & STABIELE TOKEN REFRESH
 # ======================================================
 
 def get_access_token():
     """
-    Haalt een nieuwe access_token op via refresh_token.
-    Crasht niet meer als er nog geen refresh_token bestaat.
+    Haalt een nieuw access_token op via refresh_token.
+    We gebruiken *altijd* de waarde uit Railway,
+    zodat de koppeling nooit stuk gaat bij een herstart.
     """
-    global REFRESH_TOKEN
 
-    # 🔥 FIX: voorkom crash wanneer gebruiker nog niet gekoppeld is
-    if not REFRESH_TOKEN:
-        raise Exception("Geen REFRESH_TOKEN gevonden — login via Teamleader OAuth is vereist.")
+    refresh_token = os.getenv("REFRESH_TOKEN")
+
+    if not refresh_token:
+        raise Exception(
+            "Geen REFRESH_TOKEN gevonden in Railway — de koppeling is niet geconfigureerd."
+        )
 
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
+        "refresh_token": refresh_token,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
     }
@@ -54,12 +57,15 @@ def get_access_token():
         raise Exception(f"Kon access_token niet vernieuwen: {resp.text}")
 
     tokens = resp.json()
-    REFRESH_TOKEN = tokens["refresh_token"]
+
+    # We IGNOREREN bewust tokens["refresh_token"]
+    # omdat Railway omgevingsvariabelen niet beschreven kunnen worden.
+    # Hierdoor blijft de koppeling altijd stabiel.
+
     return tokens["access_token"]
 
 
 def request_with_auto_refresh(method: str, url: str, json_data=None, files=None):
-
     try:
         access_token = get_access_token()
     except Exception as e:
@@ -106,6 +112,7 @@ FRONT_DESCRIPTION_CONFIG = {
     "SAM": {"titel": "Keukenrenovatie model Sam", "materiaal": "Noten fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
     "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
 }
+
 
 def bepaal_model(g2, h2):
     mapping = {
@@ -214,9 +221,7 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
 # ======================================================
 # 🧾 TEAMLEADER OFFERTE AANMAKEN
 # ======================================================
-
 def maak_teamleader_offerte(deal_id, data, mode):
-
     url = f"{API_BASE}/quotations.create"
 
     model = data["model"]
@@ -254,7 +259,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
     # -----------------------------
     # PARTICULIER
     # -----------------------------
-
     if mode == "P":
 
         tekst = []
@@ -314,7 +318,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
     # -----------------------------
     # DEALER
     # -----------------------------
-
     else:
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
 

@@ -24,9 +24,9 @@ st.title("HelloFront – Inmeet Tool")
 st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Teamleader.")
 
 # 🔍 Debug: laat ZIEN wat Python daadwerkelijk uit de omgeving leest
-st.write("DEBUG – CLIENT_ID uit env:", repr(CLIENT_ID))
-st.write("DEBUG – CLIENT_SECRET leeg?:", CLIENT_SECRET == "")
-st.write("DEBUG – REDIRECT_URI:", REDIRECT_URI)
+# st.write("DEBUG – CLIENT_ID uit env:", repr(CLIENT_ID))
+# st.write("DEBUG – CLIENT_SECRET leeg?:", CLIENT_SECRET == "")
+# st.write("DEBUG – REDIRECT_URI:", REDIRECT_URI)
 
 # ======================================================
 # 2. CALLBACK HANDLING (als Teamleader ?code=... terugstuurt)

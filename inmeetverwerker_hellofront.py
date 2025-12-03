@@ -9,7 +9,7 @@ import json
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- GEEN lokaal bestand meer
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- wordt pas gebruikt na login
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
@@ -33,9 +33,13 @@ PRIJS_LADE = 184.0
 def get_access_token():
     """
     Haalt een nieuwe access_token op via refresh_token.
-    LET OP: Dit gebruikt GEEN lokaal JSON bestand meer.
+    Crasht niet meer als er nog geen refresh_token bestaat.
     """
     global REFRESH_TOKEN
+
+    # 🔥 FIX: voorkom crash wanneer gebruiker nog niet gekoppeld is
+    if not REFRESH_TOKEN:
+        raise Exception("Geen REFRESH_TOKEN gevonden — login via Teamleader OAuth is vereist.")
 
     data = {
         "grant_type": "refresh_token",
@@ -47,12 +51,10 @@ def get_access_token():
     resp = requests.post(TOKEN_URL, data=data)
 
     if resp.status_code != 200:
-        raise Exception(
-            f"Kon access_token niet vernieuwen: {resp.text}"
-        )
+        raise Exception(f"Kon access_token niet vernieuwen: {resp.text}")
 
     tokens = resp.json()
-    REFRESH_TOKEN = tokens["refresh_token"]  # update in RAM
+    REFRESH_TOKEN = tokens["refresh_token"]
     return tokens["access_token"]
 
 
@@ -68,7 +70,6 @@ def request_with_auto_refresh(method: str, url: str, json_data=None, files=None)
         headers["Content-Type"] = "application/json"
 
     resp = requests.request(method, url, headers=headers, json=json_data, files=files)
-
     return resp
 
 
@@ -233,9 +234,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # =====================================================
-    # ✨ EERSTE REGEL: KLANTGEGEVENS
-    # =====================================================
+    # -----------------------------
+    # KLANTGEGEVENS
+    # -----------------------------
 
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
@@ -250,9 +251,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
         ],
     })
 
-    # =====================================================
+    # -----------------------------
     # PARTICULIER
-    # =====================================================
+    # -----------------------------
 
     if mode == "P":
 
@@ -310,9 +311,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
             ],
         })
 
-    # =====================================================
+    # -----------------------------
     # DEALER
-    # =====================================================
+    # -----------------------------
 
     else:
         section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}

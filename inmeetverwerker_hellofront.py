@@ -4,17 +4,16 @@ import os
 import json
 
 # ======================================================
-# 🔧 TEAMLEADER CONFIG — UIT RAILWAY VARIABLES
+# 🔧 TEAMLEADER CONFIG — VIA RAILWAY ENV
 # ======================================================
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")   # <-- vaste token, uit Railway
 
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
-# 21% BTW-tarief ID
+# 21% BTW
 TAX_RATE_21_ID = "94da9f7d-9bf3-04fb-ac49-404ed252c381"
 
 # Vaste kosten
@@ -25,28 +24,41 @@ VRACHT = 60.00
 PRIJS_SCHARNIER = 6.5
 PRIJS_LADE = 184.0
 
+# ======================================================
+# 🔒 TOKEN MANAGEMENT — AUTOMATISCHE REFRESH + OPSLAAN
+# ======================================================
 
-# ======================================================
-# 🔒 VEILIGE & STABIELE TOKEN REFRESH
-# ======================================================
+TOKEN_FILE = "/app/refresh_token.txt"   # persistent binnen Railway container
+
+def load_refresh_token():
+    """Laadt refresh_token vanaf disk, of fallback naar ENV (1e keer)."""
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, "r") as f:
+            return f.read().strip()
+    return os.getenv("REFRESH_TOKEN")
+
+def save_refresh_token(token: str):
+    """Slaat vernieuwde refresh_token op zodat altijd geldig blijft."""
+    with open(TOKEN_FILE, "w") as f:
+        f.write(token)
+
+# Laad token bij opstart
+REFRESH_TOKEN = load_refresh_token()
+
 
 def get_access_token():
     """
-    Haalt een nieuw access_token op via refresh_token.
-    We gebruiken *altijd* de waarde uit Railway,
-    zodat de koppeling nooit stuk gaat bij een herstart.
+    Haal een nieuwe access_token op. Sla vernieuwde refresh_token op.
+    Werkt onbeperkt zonder opnieuw inloggen.
     """
+    global REFRESH_TOKEN
 
-    refresh_token = os.getenv("REFRESH_TOKEN")
-
-    if not refresh_token:
-        raise Exception(
-            "Geen REFRESH_TOKEN gevonden in Railway — de koppeling is niet geconfigureerd."
-        )
+    if not REFRESH_TOKEN:
+        raise Exception("Geen refresh_token gevonden — log eerst in via de app.")
 
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
+        "refresh_token": REFRESH_TOKEN,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
     }
@@ -58,18 +70,16 @@ def get_access_token():
 
     tokens = resp.json()
 
-    # We IGNOREREN bewust tokens["refresh_token"]
-    # omdat Railway omgevingsvariabelen niet beschreven kunnen worden.
-    # Hierdoor blijft de koppeling altijd stabiel.
+    # Teamleader geeft ALTIJD een nieuwe refresh_token terug
+    REFRESH_TOKEN = tokens["refresh_token"]
+    save_refresh_token(REFRESH_TOKEN)
 
     return tokens["access_token"]
 
 
 def request_with_auto_refresh(method: str, url: str, json_data=None, files=None):
-    try:
-        access_token = get_access_token()
-    except Exception as e:
-        raise Exception(f"Kon access_token niet vernieuwen: {e}")
+    """API wrapper die automatisch token vernieuwt."""
+    access_token = get_access_token()
 
     headers = {"Authorization": f"Bearer {access_token}"}
     if not files:
@@ -99,18 +109,18 @@ MODEL_INFO = {
 }
 
 FRONT_DESCRIPTION_CONFIG = {
-    "NOAH": {"titel": "Keukenrenovatie model Noah", "materiaal": "MDF Gespoten - vlak", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "FEDDE": {"titel": "Keukenrenovatie model Fedde", "materiaal": "MDF Gespoten - greeploos", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "DAVE": {"titel": "Keukenrenovatie model Dave", "materiaal": "MDF Gespoten - 70mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "JOLIE": {"titel": "Keukenrenovatie model Jolie", "materiaal": "MDF Gespoten - 25mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
-    "DEX": {"titel": "Keukenrenovatie model Dex", "materiaal": "MDF Gespoten - V-groef 100mm", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde standaard wit"},
+    "NOAH": {"titel": "Keukenrenovatie model Noah", "materiaal": "MDF Gespoten - vlak", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde wit"},
+    "FEDDE": {"titel": "Keukenrenovatie model Fedde", "materiaal": "MDF Gespoten - greeploos", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde wit"},
+    "DAVE": {"titel": "Keukenrenovatie model Dave", "materiaal": "MDF Gespoten - 70mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde wit"},
+    "JOLIE": {"titel": "Keukenrenovatie model Jolie", "materiaal": "MDF Gespoten - 25mm kader", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde wit"},
+    "DEX": {"titel": "Keukenrenovatie model Dex", "materiaal": "MDF Gespoten - V-groef", "frontdikte": "18mm", "afwerking": "Zijdeglans", "dubbelzijdig": "Nee, binnenzijde wit"},
 
-    "JACK": {"titel": "Keukenrenovatie model Jack", "materiaal": "Eiken fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "JAMES": {"titel": "Keukenrenovatie model James", "materiaal": "Eiken fineer - 10mm massief kader", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "CHIEL": {"titel": "Keukenrenovatie model Chiel", "materiaal": "Eiken fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "JACK": {"titel": "Keukenrenovatie model Jack", "materiaal": "Eiken fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
+    "JAMES": {"titel": "Keukenrenovatie model James", "materiaal": "Eiken fineer - 10mm massief kader", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
+    "CHIEL": {"titel": "Keukenrenovatie model Chiel", "materiaal": "Eiken fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
 
-    "SAM": {"titel": "Keukenrenovatie model Sam", "materiaal": "Noten fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
-    "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja, standaard"},
+    "SAM": {"titel": "Keukenrenovatie model Sam", "materiaal": "Noten fineer - vlak", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
+    "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
 }
 
 
@@ -145,10 +155,11 @@ def lees_excel(path):
     h2 = df.iloc[1, 7]
     kleur = df.iloc[1, 8]
 
-    klantregels = []
-    for r in range(1, 6):
-        if pd.notna(df.iloc[r, 10]):
-            klantregels.append(str(df.iloc[r, 10]))
+    klantregels = [
+        str(df.iloc[r, 10])
+        for r in range(1, 6)
+        if pd.notna(df.iloc[r, 10])
+    ]
 
     scharnieren = int(df.iloc[2, 9]) if pd.notna(df.iloc[2, 9]) else 0
     lades = int(df.iloc[4, 9]) if pd.notna(df.iloc[4, 9]) else 0
@@ -159,12 +170,8 @@ def lees_excel(path):
 
 
 # ======================================================
-# 🧮 BEREKENINGEN
+# 🧮 OFFERTE BEREKENING
 # ======================================================
-
-def euro(x):
-    return f"€ {x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
-
 
 def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades):
 
@@ -221,7 +228,9 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
 # ======================================================
 # 🧾 TEAMLEADER OFFERTE AANMAKEN
 # ======================================================
+
 def maak_teamleader_offerte(deal_id, data, mode):
+
     url = f"{API_BASE}/quotations.create"
 
     model = data["model"]
@@ -239,56 +248,55 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # -----------------------------
-    # KLANTGEGEVENS
-    # -----------------------------
+    # -----------------------------  
+    # KLANTGEGEVENS  
+    # -----------------------------  
 
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
-        "line_items": [
-            {
-                "quantity": 1,
-                "description": "Klantgegevens",
-                "extended_description": klanttekst,
-                "unit_price": {"amount": 0, "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
-            }
-        ],
+        "line_items": [{
+            "quantity": 1,
+            "description": "Klantgegevens",
+            "extended_description": klanttekst,
+            "unit_price": {"amount": 0, "tax": "excluding"},
+            "tax_rate_id": TAX_RATE_21_ID,
+        }],
     })
 
-    # -----------------------------
-    # PARTICULIER
-    # -----------------------------
-    if mode == "P":
+    # -----------------------------  
+    # PARTICULIER  
+    # -----------------------------  
 
+    if mode == "P":
         tekst = []
-        front_toevoegingen = []
+        toevoegingen = []
 
         if data["toeslag_passtuk"] > 0:
-            front_toevoegingen.append("inclusief passtukken en/of plinten")
+            toevoegingen.append("inclusief passtukken en/of plinten")
 
         if data["toeslag_anders"] > 0:
-            front_toevoegingen.append("inclusief licht- en/of sierlijsten")
+            toevoegingen.append("inclusief licht- en/of sierlijsten")
 
-        extra_text = f" ({', '.join(front_toevoegingen)})" if front_toevoegingen else ""
+        extra_text = f" ({', '.join(toevoegingen)})" if toevoegingen else ""
 
-        tekst.append(f"Aantal fronten: {fronts} fronten{extra_text}")
-        tekst.append(f"Materiaal: {cfg['materiaal']}")
-        tekst.append(f"Frontdikte: {cfg['frontdikte']}")
-        tekst.append(f"Kleur: {data['kleur']}")
-        tekst.append(f"Afwerking: {cfg['afwerking']}")
-        tekst.append(f"Dubbelzijdig in kleur afwerken: {cfg['dubbelzijdig']}")
-        tekst.append("Inmeten: Ja")
-        tekst.append("Montage: Ja")
-        tekst.append("Handgrepen: Te bepalen")
-        tekst.append("")
-        tekst.append("Prijs is inclusief:")
-        tekst.append("- Demontage oude fronten & materialen")
-        tekst.append("- Inmeten, leveren en montage van de fronten")
+        tekst += [
+            f"Aantal fronten: {fronts} fronten{extra_text}",
+            f"Materiaal: {cfg['materiaal']}",
+            f"Frontdikte: {cfg['frontdikte']}",
+            f"Kleur: {data['kleur']}",
+            f"Afwerking: {cfg['afwerking']}",
+            f"Dubbelzijdig in kleur afwerken: {cfg['dubbelzijdig']}",
+            "Inmeten: Ja",
+            "Montage: Ja",
+            "Handgrepen: Te bepalen",
+            "",
+            "Prijs is inclusief:",
+            "- Demontage oude fronten & materialen",
+            "- Inmeten, leveren en montage van de fronten",
+        ]
 
         if data["toeslag_passtuk"] > 0:
             tekst.append("- Montage van passtukken en/of plinten")
-
         if data["toeslag_anders"] > 0:
             tekst.append("- Montage van licht- en/of sierlijsten")
 
@@ -296,30 +304,31 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         if data["scharnieren"] > 0:
             tekst.append(f"- Inclusief vervangen scharnieren ({data['scharnieren']} stuks)")
-
         if data["lades"] > 0:
             tekst.append(f"- Inclusief plaatsen maatwerk lades ({data['lades']} stuks)")
 
-        final_text = "\r\n".join(tekst)
+        final = "\r\n".join(tekst)
 
         grouped_lines.append({
             "section": {"title": "KEUKENRENOVATIE"},
-            "line_items": [
-                {
-                    "quantity": 1,
-                    "description": f"Keukenrenovatie model {model}",
-                    "extended_description": final_text,
-                    "unit_price": {"amount": round(data["totaal_excl"], 2), "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
-                }
-            ],
+            "line_items": [{
+                "quantity": 1,
+                "description": f"Keukenrenovatie model {model}",
+                "extended_description": final,
+                "unit_price": {"amount": round(data["totaal_excl"], 2), "tax": "excluding"},
+                "tax_rate_id": TAX_RATE_21_ID,
+            }],
         })
 
-    # -----------------------------
-    # DEALER
-    # -----------------------------
+    # -----------------------------  
+    # DEALER  
+    # -----------------------------  
+
     else:
-        section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
+        section = {
+            "section": {"title": "KEUKENRENOVATIE"},
+            "line_items": []
+        }
 
         section["line_items"].append({
             "quantity": fronts,
@@ -331,10 +340,10 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 f"Kleur: {data['kleur']}\r\n"
                 f"Afwerking: {cfg['afwerking']}\r\n"
                 f"Dubbelzijdig in kleur afwerken: {cfg['dubbelzijdig']}\r\n"
-                f"Inmeten: Ja\r\n"
-                f"Montage: Ja\r\n"
-                f"\r\n"
-                f"Fronten worden geleverd zonder scharnieren"
+                "Inmeten: Ja\r\n"
+                "Montage: Ja\r\n"
+                "\r\n"
+                "Fronten worden geleverd zonder scharnieren"
             ),
             "unit_price": {"amount": data["prijs_per_front"], "tax": "excluding"},
             "tax_rate_id": TAX_RATE_21_ID,
@@ -360,6 +369,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         grouped_lines.append(section)
 
+        # ACCESSOIRES
         if data["scharnieren"] > 0 or data["lades"] > 0:
             acc = {"section": {"title": "ACCESSOIRES"}, "line_items": []}
 
@@ -383,27 +393,28 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
             grouped_lines.append(acc)
 
+        # INMETEN EN MONTAGE
         grouped_lines.append({
             "section": {"title": "INMETEN, LEVEREN & MONTEREN"},
             "line_items": [
                 {
                     "quantity": 1,
                     "description": "Inmeten",
-                    "extended_description": "inmeten op locatie",
+                    "extended_description": "Inmeten op locatie",
                     "unit_price": {"amount": INMETEN, "tax": "excluding"},
                     "tax_rate_id": TAX_RATE_21_ID,
                 },
                 {
                     "quantity": fronts,
                     "description": "Montage per front",
-                    "extended_description": "inclusief demontage oude fronten & afvoeren",
+                    "extended_description": "Inclusief demontage oude fronten & afvoeren",
                     "unit_price": {"amount": MONTAGE_PER_FRONT, "tax": "excluding"},
                     "tax_rate_id": TAX_RATE_21_ID,
                 },
                 {
                     "quantity": 1,
                     "description": "Vracht- & verpakkingskosten",
-                    "extended_description": "Levering op locatie (excl. waddeneilanden)",
+                    "extended_description": "Levering op locatie",
                     "unit_price": {"amount": VRACHT, "tax": "excluding"},
                     "tax_rate_id": TAX_RATE_21_ID,
                 },

@@ -281,7 +281,23 @@ def _parse_inrichting(inrichting_raw: str):
 def _lees_maatwerk_kasten(path: str):
     """
     Leest tabblad 'MAATWERK KASTEN' en geeft een lijst met kast-dicts terug.
-    Eén kast per kolom B..K, rijen ~5..18.
+
+    Rijstructuur (EXACT zoals bevestigd):
+
+      5  = TYPE KAST (A,B of C)
+      6  = Hoogte
+      7  = Breedte
+      8  = Diepte
+      9  = Hoogte pootje
+      10 = Zichtbare zijde
+      11 = Inrichting
+      12 = Scharnieren
+      13 = Frontmodel
+      14 = Aantal fronten
+      15 = Kleur corpus
+      16 = Dubbelzijdig afgewerkt
+      17 = Handgreep
+      18 = Afwerking
     """
     try:
         df = pd.read_excel(path, sheet_name="MAATWERK KASTEN", header=None)
@@ -289,48 +305,43 @@ def _lees_maatwerk_kasten(path: str):
         return []
 
     kasten = []
-
-    # indices (0-based) voor rijen volgens jouw structuur
-    ROW_TYPE = 4  # B5..K5
-    ROW_HOOGTE = 5
-    ROW_BREEDTE = 6
-    ROW_DIEPTE = 7
-    ROW_POOTHOOGTE = 8
-    ROW_KLEUR_CORPUS = 9
-    ROW_ZICHTBARE_ZIJDE = 10
-    ROW_INRICHTING = 11
-    ROW_SCHARNIEREN = 12
-    ROW_FRONTMODEL = 13
-    ROW_FRONT_INDELING = 14
-    ROW_KLEUR_FRONT = 15
-    ROW_DUBBELZIJDIG = 16
-    ROW_HANDGREEP = 17
-    ROW_AFWERKING = 18  # als deze rij niet bestaat, wordt het gewoon leeg
-
     max_row_idx = df.shape[0] - 1
 
-    for col in range(1, 11):  # kolommen B..K
-        # check of er überhaupt iets ingevuld is in deze kast-kolom
-        rows_to_check = list(range(ROW_TYPE, min(18, max_row_idx) + 1))
-        filled = False
-        for r in rows_to_check:
-            if r <= max_row_idx and not pd.isna(df.iloc[r, col]):
-                filled = True
-                break
+    # Mapping naar 0-based index:
+    ROW_TYPE            = 4   # rij 5
+    ROW_HOOGTE          = 5   # rij 6
+    ROW_BREEDTE         = 6   # rij 7
+    ROW_DIEPTE          = 7   # rij 8
+    ROW_POOTHOOGTE      = 8   # rij 9
+    ROW_ZICHTBARE_ZIJDE = 9   # rij 10
+    ROW_INRICHTING      = 10  # rij 11
+    ROW_SCHARNIEREN     = 11  # rij 12
+    ROW_FRONTMODEL      = 12  # rij 13
+    ROW_AANTAL_FRONTEN  = 13  # rij 14
+    ROW_KLEUR_CORPUS    = 14  # rij 15
+    ROW_DUBBELZIJDIG    = 15  # rij 16
+    ROW_HANDGREEP       = 16  # rij 17
+    ROW_AFWERKING       = 17  # rij 18
+
+    for col in range(1, 11):  # kolommen B..K (0-based: 1..10)
+
+        # check of kast überhaupt gegevens bevat
+        rows_to_check = list(range(ROW_TYPE, ROW_AFWERKING + 1))
+        filled = any(
+            r <= max_row_idx and not pd.isna(df.iloc[r, col])
+            for r in rows_to_check
+        )
         if not filled:
             continue
 
-        type_raw = df.iloc[ROW_TYPE, col] if ROW_TYPE <= max_row_idx else ""
-        kast_type = str(type_raw).strip().upper() if not pd.isna(type_raw) else ""
+        # Uitlezen velden — exact volgens bevestigde Excel-structuur
+        kast_type_raw = df.iloc[ROW_TYPE, col]
+        kast_type = str(kast_type_raw).strip().upper() if not pd.isna(kast_type_raw) else ""
 
         hoogte = _safe_float(df.iloc[ROW_HOOGTE, col]) if ROW_HOOGTE <= max_row_idx else None
         breedte = _safe_float(df.iloc[ROW_BREEDTE, col]) if ROW_BREEDTE <= max_row_idx else None
         diepte = _safe_float(df.iloc[ROW_DIEPTE, col]) if ROW_DIEPTE <= max_row_idx else None
         poothoogte = _safe_float(df.iloc[ROW_POOTHOOGTE, col]) if ROW_POOTHOOGTE <= max_row_idx else None
-
-        kleur_corpus = ""
-        if ROW_KLEUR_CORPUS <= max_row_idx and not pd.isna(df.iloc[ROW_KLEUR_CORPUS, col]):
-            kleur_corpus = str(df.iloc[ROW_KLEUR_CORPUS, col]).strip()
 
         zichtbare_zijde = ""
         if ROW_ZICHTBARE_ZIJDE <= max_row_idx and not pd.isna(df.iloc[ROW_ZICHTBARE_ZIJDE, col]):
@@ -348,13 +359,13 @@ def _lees_maatwerk_kasten(path: str):
         if ROW_FRONTMODEL <= max_row_idx and not pd.isna(df.iloc[ROW_FRONTMODEL, col]):
             frontmodel = str(df.iloc[ROW_FRONTMODEL, col]).strip().upper()
 
-        front_indeling = ""
-        if ROW_FRONT_INDELING <= max_row_idx and not pd.isna(df.iloc[ROW_FRONT_INDELING, col]):
-            front_indeling = str(df.iloc[ROW_FRONT_INDELING, col]).strip()
+        aantal_fronten = 0
+        if ROW_AANTAL_FRONTEN <= max_row_idx and not pd.isna(df.iloc[ROW_AANTAL_FRONTEN, col]):
+            aantal_fronten = _safe_int(df.iloc[ROW_AANTAL_FRONTEN, col])
 
-        kleur_front = ""
-        if ROW_KLEUR_FRONT <= max_row_idx and not pd.isna(df.iloc[ROW_KLEUR_FRONT, col]):
-            kleur_front = str(df.iloc[ROW_KLEUR_FRONT, col]).strip()
+        kleur_corpus = ""
+        if ROW_KLEUR_CORPUS <= max_row_idx and not pd.isna(df.iloc[ROW_KLEUR_CORPUS, col]):
+            kleur_corpus = str(df.iloc[ROW_KLEUR_CORPUS, col]).strip()
 
         dubbelzijdig = ""
         if ROW_DUBBELZIJDIG <= max_row_idx and not pd.isna(df.iloc[ROW_DUBBELZIJDIG, col]):
@@ -368,11 +379,13 @@ def _lees_maatwerk_kasten(path: str):
         if ROW_AFWERKING <= max_row_idx and not pd.isna(df.iloc[ROW_AFWERKING, col]):
             afwerking = str(df.iloc[ROW_AFWERKING, col]).strip()
 
+        # Parse inrichting
         inrichting_parsed = _parse_inrichting(inrichting_raw)
 
+        # Kast-dict
         kast = {
             "kolom_index": col,
-            "type": kast_type,  # "A", "B", "C"
+            "type": kast_type,
             "hoogte": hoogte,
             "breedte": breedte,
             "diepte": diepte,
@@ -383,12 +396,12 @@ def _lees_maatwerk_kasten(path: str):
             "inrichting": inrichting_parsed,
             "scharnieren": scharnieren,
             "frontmodel": frontmodel,
-            "front_indeling": front_indeling,
-            "kleur_front": kleur_front,
+            "aantal_fronten": aantal_fronten,
             "dubbelzijdig": dubbelzijdig,
             "handgreep": handgreep,
             "afwerking": afwerking,
         }
+
         kasten.append(kast)
 
     return kasten
@@ -544,7 +557,7 @@ def _bereken_maatwerk_kast(kast: dict):
     else:
         front_m2_prijs = M2_FRONT_PRIJZEN[frontmodel]
 
-    # front-oppervlakte (hele kastfront, aantal fronten irrelevant voor m²)
+    # front-oppervlakte (hele kastfront, aantal fronten is puur informatief)
     front_m2 = (hoogte * breedte) / 1_000_000.0 if hoogte and breedte else 0.0
     front_inkoop = front_m2 * front_m2_prijs
 
@@ -594,21 +607,22 @@ def _bereken_maatwerk_kast(kast: dict):
     totaal_inkoop = round(totaal_inkoop, 2)
 
     # -----------------------------
-    # 5) BESCHRIJVING OPBOUWEN
+    # 5) BESCHRIJVING OPBOUWEN (VOLGORDE = EXCEL)
     # -----------------------------
+    aantal_fronten = kast.get("aantal_fronten", 0)
+
     beschrijving_regels = [
         f"Type kast: {kast_type}",
         f"Hoogte: {hoogte:.0f} mm" if hoogte else "Hoogte: -",
         f"Breedte: {breedte:.0f} mm" if breedte else "Breedte: -",
         f"Diepte: {diepte:.0f} mm" if diepte else "Diepte: -",
         f"Hoogte pootje: {kast.get('poothoogte') or '-'}",
-        f"Kleur corpus: {kast.get('kleur_corpus') or '-'}",
-        f"Zichtbare zijde: {kast.get('zichtbare_zijde') or 'Nee'}",
+        f"Zichtbare zijde: {kast.get('zichtbare_zijde') or '-'}",
         f"Inrichting: {kast.get('inrichting_raw') or '-'}",
         f"Scharnieren: {scharnieren}",
         f"Frontmodel: {frontmodel or '-'}",
-        f"Front indeling: {kast.get('front_indeling') or '-'}",
-        f"Kleur: {kast.get('kleur_front') or '-'}",
+        f"Aantal fronten: {aantal_fronten or '-'}",
+        f"Kleur corpus: {kast.get('kleur_corpus') or '-'}",
         f"Dubbelzijdig afgewerkt: {kast.get('dubbelzijdig') or '-'}",
         f"Handgreep: {kast.get('handgreep') or 'n.v.t.'}",
         f"Afwerking: {kast.get('afwerking') or '-'}",

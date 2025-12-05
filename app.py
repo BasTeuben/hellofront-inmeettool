@@ -63,11 +63,9 @@ if auth_code:
 
 
 # ======================================================
-# 3. VERBORGEN LOGIN-KNOP (ALTIJD ZICHTBAAR, MAAR SUBTIEL)
+# 3. VERBORGEN LOGIN-KNOP (SUBTIEL)
 # ======================================================
-
 def render_hidden_login_button():
-    """Toont een onopvallende mini-login-knop onderaan de pagina."""
     params_login = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -87,11 +85,9 @@ def render_hidden_login_button():
         unsafe_allow_html=True,
     )
 
-# render_hidden_login_button wordt straks helemaal onderaan de pagina aangeroepen.
-
 
 # ======================================================
-# 4. TEAMLEADER IS GEKOPPELD → NORMAL APP FLOW
+# 4. NORMAL APP FLOW
 # ======================================================
 
 uploaded_file = st.file_uploader("Kies een Excel-bestand (.xlsx)", type=["xlsx"])
@@ -109,17 +105,8 @@ if uploaded_file:
     temp_file.close()
 
     try:
-        (
-            onderdelen,
-            g2,
-            h2,
-            kleur,
-            klantregels,
-            scharnieren,
-            lades,
-            project,
-            maatwerk_kasten,
-        ) = hf.lees_excel(temp_file.name)
+        # ⬅️ TERUG NAAR DE ORIGINELE, CORRECTE 8-WAARDEN UNPACK
+        onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
@@ -130,16 +117,8 @@ if uploaded_file:
         st.stop()
 
     try:
-        data = hf.bereken_offerte(
-            onderdelen,
-            model,
-            project,
-            kleur,
-            klantregels,
-            scharnieren,
-            lades,
-            maatwerk_kasten,
-        )
+        # ⬅️ AANROEP VAN DE BEREKENINGSFUNCTIE → TERUG NAAR JUISTE VERSIE
+        data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
     except Exception as e:
         st.error(f"❌ Fout tijdens berekening van de offerte: {e}")
         st.stop()
@@ -169,7 +148,8 @@ if uploaded_file:
 else:
     st.info("Upload een Excel-bestand om te beginnen.")
 
+
 # ======================================================
-# 5. VERBORGEN LOGIN-KNOP WEERGEVEN (ONDERAAN)
+# 5. VERBORGEN LOGIN-KNOP (ONDERAAN)
 # ======================================================
 render_hidden_login_button()

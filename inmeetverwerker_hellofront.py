@@ -781,6 +781,8 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         # maatwerk informatie voor Teamleader
         "maatwerk_kasten": maatwerk_regels,
         "maatwerk_totaal_verkoop": maatwerk_totaal_verkoop,
+        # ook handig om keuken-deel los te hebben
+        "totaal_excl_frontdeel": totaal_excl_frontdeel,
     }
 
 
@@ -821,6 +823,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
             "tax_rate_id": TAX_RATE_21_ID,
         }],
     })
+
+    maatwerk_kasten = data.get("maatwerk_kasten") or []
+    maatwerk_totaal = data.get("maatwerk_totaal_verkoop", 0.0)
 
     # -----------------------------
     # PARTICULIER
@@ -868,16 +873,35 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         final = "\r\n".join(tekst)
 
+        # Keukenrenovatie-bedrag ZONDER maatwerk kasten
+        keuken_bedrag = round(data["totaal_excl"] - maatwerk_totaal, 2)
+
         grouped_lines.append({
             "section": {"title": "KEUKENRENOVATIE"},
             "line_items": [{
                 "quantity": 1,
                 "description": f"Keukenrenovatie model {model}",
                 "extended_description": final,
-                "unit_price": {"amount": round(data["totaal_excl"], 2), "tax": "excluding"},
+                "unit_price": {"amount": keuken_bedrag, "tax": "excluding"},
                 "tax_rate_id": TAX_RATE_21_ID,
             }],
         })
+
+        # MAATWERK KASTEN ALS APARTE SECTIE (variant B)
+        if maatwerk_kasten:
+            mk_section = {
+                "section": {"title": "MAATWERK KASTEN"},
+                "line_items": []
+            }
+            for kast in maatwerk_kasten:
+                mk_section["line_items"].append({
+                    "quantity": 1,
+                    "description": kast["titel"],
+                    "extended_description": kast["beschrijving"],
+                    "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
+                    "tax_rate_id": TAX_RATE_21_ID,
+                })
+            grouped_lines.append(mk_section)
 
     # -----------------------------
     # DEALER
@@ -931,7 +955,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
         # -----------------------------
         # MAATWERK KASTEN (NA KEUKENRENOVATIE, VOOR INMETEN/MONTAGE)
         # -----------------------------
-        maatwerk_kasten = data.get("maatwerk_kasten") or []
         if maatwerk_kasten:
             mk_section = {
                 "section": {"title": "MAATWERK KASTEN"},

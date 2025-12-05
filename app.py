@@ -109,7 +109,17 @@ if uploaded_file:
     temp_file.close()
 
     try:
-        onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
+        (
+            onderdelen,
+            g2,
+            h2,
+            kleur,
+            klantregels,
+            scharnieren,
+            lades,
+            project,
+            maatwerk_kasten,
+        ) = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
@@ -120,7 +130,16 @@ if uploaded_file:
         st.stop()
 
     try:
-        data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
+        data = hf.bereken_offerte(
+            onderdelen,
+            model,
+            project,
+            kleur,
+            klantregels,
+            scharnieren,
+            lades,
+            maatwerk_kasten,
+        )
     except Exception as e:
         st.error(f"❌ Fout tijdens berekening van de offerte: {e}")
         st.stop()

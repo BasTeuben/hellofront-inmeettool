@@ -190,6 +190,7 @@ SPOELKAST_BESCHERMING = [33, 33, 33, 33, 33, 33, 33, 33]  # rij 27
 APOTHEKERS_LADE = [546, 546, 546, 546, 546, 546, 546, 546]  # rij 28
 CARROUSEL = [0, 0, 0, 452, 452, 452, 452, 452]  # G–J=452, C–F=0
 
+
 # ======================================================
 # 🔎 HULPFUNCTIES MAATWERK KASTEN
 # ======================================================
@@ -438,12 +439,13 @@ def _bereken_maatwerk_kast(kast: dict):
 
     if kast_type == "A":
         # A-kast: onderkast tot 1000mm
+        # Subtype bepalen via inrichting: lades of planken of ovens
         inrichting_raw = (kast.get("inrichting_raw") or "").lower()
         if "lade" in inrichting_raw:
             # ladekast
             corpus_inkoop = A_LADE_KAST[idx]
         elif "plank" in inrichting_raw:
-            # onderkast geschikt voor planken (zelfde prijslijn voor nu)
+            # voor nu zelfde prijslijn als ladekast
             corpus_inkoop = A_LADE_KAST[idx]
         else:
             # ovenkast
@@ -521,6 +523,7 @@ def _bereken_maatwerk_kast(kast: dict):
         inrichting_inkoop += carrousels * CARROUSEL[idx]
 
     if klepscharnieren > 0:
+        # Zelfde prijs als scharnier per stuk
         inrichting_inkoop += klepscharnieren * SCHARNIER_PER_STUK_MAATWERK[idx]
 
     # Scharnieren (deurscharnieren uit veld "Scharnieren")
@@ -536,6 +539,7 @@ def _bereken_maatwerk_kast(kast: dict):
 
     frontmodel = (kast.get("frontmodel") or "").upper()
     if frontmodel not in M2_FRONT_PRIJZEN:
+        # fallback: geen frontprijs → 0
         front_m2_prijs = 0.0
     else:
         front_m2_prijs = M2_FRONT_PRIJZEN[frontmodel]

@@ -105,7 +105,6 @@ if uploaded_file:
     temp_file.close()
 
     try:
-        # ⬅️ TERUG NAAR DE ORIGINELE, CORRECTE 8-WAARDEN UNPACK
         onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
@@ -117,7 +116,6 @@ if uploaded_file:
         st.stop()
 
     try:
-        # ⬅️ AANROEP VAN DE BEREKENINGSFUNCTIE → TERUG NAAR JUISTE VERSIE
         data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
     except Exception as e:
         st.error(f"❌ Fout tijdens berekening van de offerte: {e}")

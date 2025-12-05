@@ -24,7 +24,7 @@ st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Te
 
 
 # ======================================================
-# 2. CALLBACK HANDLING (Teamleader stuurt ?code=... terug)
+# 2. CALLBACK HANDLING (na OAuth redirect)
 # ======================================================
 params = st.query_params
 auth_code = params.get("code", None)
@@ -63,7 +63,7 @@ if auth_code:
 
 
 # ======================================================
-# 3. VERBORGEN LOGIN-KNOP (SUBTIEL)
+# 3. VERBORGEN LOGIN-KNOP
 # ======================================================
 def render_hidden_login_button():
     params_login = {
@@ -100,27 +100,41 @@ deal_id = st.text_input("Teamleader deal-ID")
 st.markdown("---")
 
 if uploaded_file:
+
+    # tijdelijk opslaan
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     temp_file.write(uploaded_file.read())
     temp_file.close()
 
+    # Excel uitlezen — ***BELANGRIJK → originele working versie (8 waarden)***
     try:
         onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
 
+    # frontmodel bepalen
     model = hf.bepaal_model(g2, h2)
     if not model:
         st.error(f"❌ Onbekend model (G2='{g2}', H2='{h2}').")
         st.stop()
 
+    # offerte berekenen
     try:
-        data = hf.bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades)
+        data = hf.bereken_offerte(
+            onderdelen,
+            model,
+            project,
+            kleur,
+            klantregels,
+            scharnieren,
+            lades
+        )
     except Exception as e:
         st.error(f"❌ Fout tijdens berekening van de offerte: {e}")
         st.stop()
 
+    # SAMENVATTING
     st.subheader("Samenvatting")
     st.write(f"**Project:** {data['project']}")
     st.write(f"**Model:** {data['model']} ({data['materiaal']})")
@@ -128,6 +142,7 @@ if uploaded_file:
     st.write(f"**Aantal fronten:** {data['fronts']}")
     st.write(f"**Scharnieren:** {data['scharnieren']}")
     st.write(f"**Lades:** {data['lades']}")
+    st.write(f"**Maatwerk kasten totaal (verkoop):** € {data['maatwerk_totaal_verkoop']:.2f}")
     st.write(f"**Totaal excl. btw:** € {data['totaal_excl']:.2f}")
     st.write(f"**Totaal incl. btw:** € {data['totaal_incl']:.2f}")
 
@@ -148,6 +163,6 @@ else:
 
 
 # ======================================================
-# 5. VERBORGEN LOGIN-KNOP (ONDERAAN)
+# 5. VERBORGEN LOGIN-KNOP (ONDER)
 # ======================================================
 render_hidden_login_button()

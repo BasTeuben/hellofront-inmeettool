@@ -2,7 +2,7 @@ import pandas as pd
 import requests
 import os
 import json
-import math
+import re
 
 # ======================================================
 # 🔧 TEAMLEADER CONFIG — VIA RAILWAY ENV
@@ -22,8 +22,8 @@ MONTAGE_PER_FRONT = 34.71
 INMETEN = 99.17
 VRACHT = 60.00
 
-PRIJS_SCHARNIER = 6.5          # voor renovatie-fronten (bestaande flow)
-PRIJS_LADE = 184.0             # voor renovatie-fronten (bestaande flow)
+PRIJS_SCHARNIER = 6.5
+PRIJS_LADE = 184.0
 
 # ======================================================
 # 🔒 TOKEN MANAGEMENT — AUTOMATISCHE REFRESH + OPSLAAN
@@ -91,7 +91,7 @@ def request_with_auto_refresh(method: str, url: str, json_data=None, files=None)
 
 
 # ======================================================
-# 🧮 MODEL- EN PRIJSLOGICA (RENOVATIE-FRONTEN)
+# 🧮 MODEL- EN PRIJSLOGICA (BESTAANDE FRONTEN)
 # ======================================================
 
 MODEL_INFO = {
@@ -124,6 +124,179 @@ FRONT_DESCRIPTION_CONFIG = {
     "DUKE": {"titel": "Keukenrenovatie model Duke", "materiaal": "Noten fineer - greeploos", "frontdikte": "19mm", "afwerking": "Monocoat olie", "dubbelzijdig": "Ja"},
 }
 
+# ======================================================
+# 🧮 MAATWERK KASTEN – M²-PRIJZEN FRONTEN
+# ======================================================
+
+M2_FRONT_PRIJZEN = {
+    "NOAH": 76.0,
+    "FEDDE": 80.0,
+    "DEX": 103.0,
+    "DAVE": 103.0,
+    "JOLIE": 103.0,
+    "JACK": 114.5,
+    "CHIEL": 149.50,
+    "JAMES": 202.50,
+    "SAM": 141.50,
+    "DUKE": 186.50,
+}
+
+# Voor zijkanten in vlak model per materiaaltype
+# MDF = NOAH, EIKEN = JACK, NOTEN = SAM
+VLAK_MODEL_PER_MATERIAAL = {
+    "MDF gespoten": "NOAH",
+    "Eikenfineer": "JACK",
+    "Noten fineer": "SAM",
+}
+
+# Breedte-staffels in mm
+KAST_BREEDTE_STAFFELS = [300, 400, 500, 600, 800, 900, 1000, 1200]
+
+# Prijstabellen uit "Prijslijst maatwerk kasten + inrichting"
+KASTPRIJS_A_OVEN = {600: 58.0}
+
+KASTPRIJS_A_LADES = {
+    300: 45.0, 400: 47.0, 500: 49.0, 600: 51.0,
+    800: 59.0, 900: 61.0, 1000: 63.0, 1200: 66.0,
+}
+
+KASTPRIJS_A_PLANK2 = {
+    300: 51.0, 400: 55.0, 500: 60.0, 600: 64.0,
+    800: 77.0, 900: 81.0, 1000: 85.0, 1200: 92.0,
+}
+
+KASTPRIJS_B_2080_2600 = {
+    300: 85.0, 400: 89.0, 500: 92.0, 600: 97.0,
+    800: 103.0, 900: 108.0, 1000: 114.0,
+}
+
+KASTPRIJS_B_1000_1950 = {
+    300: 80.0, 400: 84.0, 500: 87.0, 600: 90.0,
+    800: 95.0, 900: 98.0, 1000: 103.0,
+}
+
+KASTPRIJS_C_390 = {
+    300: 35.0, 400: 37.0, 500: 39.0, 600: 41.0,
+    800: 47.0, 900: 48.0, 1000: 50.0, 1200: 56.0,
+}
+
+KASTPRIJS_C_391_520 = {
+    300: 39.0, 400: 42.0, 500: 45.0, 600: 47.0,
+    800: 56.0, 900: 58.0, 1000: 61.0, 1200: 67.0,
+}
+
+KASTPRIJS_C_521_780 = {
+    300: 42.0, 400: 45.0, 500: 49.0, 600: 50.0,
+    800: 57.0, 900: 61.0, 1000: 66.0, 1200: 70.0,
+}
+
+KASTPRIJS_C_781P = {
+    300: 46.0, 400: 48.0, 500: 51.0, 600: 55.0,
+    800: 61.0, 900: 65.0, 1000: 68.0, 1200: 75.0,
+}
+
+# Inrichting / accessoires
+PRIJS_KLEPSCHARNIER = {b: 63.0 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_PLANK_AB = {
+    300: 4.5, 400: 6.3, 500: 7.5, 600: 7.6,
+    800: 10.6, 900: 11.8, 1000: 13.3, 1200: 15.75,
+}
+PRIJS_LADES_KAST = {b: 68.0 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_PUSH_LADE = {b: 109.0 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_SCHARNIER_KAST = {b: 9.7 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_BESTEK_BAK = {b: 33.0 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_PLASTIC_SPOEL = {b: 33.0 for b in KAST_BREEDTE_STAFFELS}
+PRIJS_APOTHEKER = {300: 546.0, 400: 546.0, 500: 546.0}
+PRIJS_CARROUSEL = {800: 452.0, 900: 452.0, 1000: 452.0, 1200: 452.0}
+
+
+def kies_breedte_staffel(breedte_mm: float) -> int:
+    """Kies eerstvolgende staffel: 610mm → 800mm, enz."""
+    if breedte_mm is None:
+        return KAST_BREEDTE_STAFFELS[0]
+    try:
+        b = float(breedte_mm)
+    except (TypeError, ValueError):
+        return KAST_BREEDTE_STAFFELS[0]
+
+    for s in KAST_BREEDTE_STAFFELS:
+        if b <= s:
+            return s
+    return KAST_BREEDTE_STAFFELS[-1]
+
+
+def parse_int_safe(v):
+    if pd.isna(v):
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    s = str(v).strip()
+    if not s:
+        return 0
+    m = re.search(r"-?\d+", s)
+    return int(m.group(0)) if m else 0
+
+
+def parse_inrichting(inrichting_str: str):
+    """
+    Haalt aantallen uit de inrichtingstekst, zoals:
+    '3x plank, 1x lade' etc.
+    """
+    result = {
+        "plank": 0,
+        "lade": 0,
+        "bestekbak": 0,
+        "apotheker": 0,
+        "carrousel": 0,
+        "klepscharnier": 0,
+        "push_lade": 0,
+        "plastic_spoel": 0,
+    }
+    if not isinstance(inrichting_str, str):
+        return result
+
+    text = inrichting_str.lower()
+
+    def count(patterns):
+        total = 0
+        for p in patterns:
+            for m in re.finditer(r"(\d+)\s*x?\s*" + p, text):
+                total += int(m.group(1))
+        return total
+
+    # planken
+    result["plank"] = count(["plank", "planken"])
+
+    # lades
+    result["lade"] = count(["lade", "lades", "laden"])
+
+    # bestekbak
+    result["bestekbak"] = count(["bestek", "bestekbak"])
+
+    # apothekerslade
+    result["apotheker"] = count(["apotheker", "apothekers"])
+
+    # carrousel
+    result["carrousel"] = count(["carrousel"])
+
+    # klepscharnieren
+    result["klepscharnier"] = count(["klepscharnier", "klepscharnieren"])
+
+    # push-to-open
+    result["push_lade"] = count(["push to open", "push-to-open"])
+
+    # plastic bescherming spoelkast
+    result["plastic_spoel"] = count(["plastic bescherming", "spoelkast"])
+
+    # Als er bijv. 'lade' wordt genoemd zonder getal → 1
+    if "lade" in text and result["lade"] == 0:
+        result["lade"] = 1
+
+    if "plank" in text and result["plank"] == 0:
+        result["plank"] = 1
+
+    return result
+
 
 def bepaal_model(g2, h2):
     mapping = {
@@ -144,359 +317,11 @@ def bepaal_model(g2, h2):
 
 
 # ======================================================
-# 🧮 MAATWERK KASTEN – EXTRA PRIJSLOGICA (m² + tabblad 2)
-# ======================================================
-
-# m²-prijzen fronten (maatwerk kasten)
-FRONT_M2_PRICES = {
-    "NOAH": 76.0,
-    "FEDDE": 80.0,
-    "DEX": 103.0,
-    "DAVE": 103.0,
-    "JOLIE": 103.0,
-    "JACK": 114.5,
-    "CHIEL": 149.50,
-    "JAMES": 202.50,
-    "SAM": 141.50,
-    "DUKE": 186.50,
-}
-
-# materiaal-groepen voor zijkanten → vlak model
-# MDF  -> NOAH
-# EIKEN -> JACK
-# NOTEN -> SAM
-VLAK_MODEL_PER_MATERIAALGROEP = {
-    "MDF": "NOAH",
-    "EIKEN": "JACK",
-    "NOTEN": "SAM",
-}
-
-# staffels voor breedte (mm)
-BREEDTE_STAFFELS = [300, 400, 500, 600, 800, 900, 1000, 1200]
-
-# prijs-tabellen uit je FinanceKing Excel (rij -> {staffel: prijs})
-PRICE_TABLE = {
-    # A-kast geschikt voor lades (rij 7)
-    7: {300: 45.0, 400: 47.0, 500: 49.0, 600: 51.0, 800: 59.0, 900: 61.0, 1000: 63.0, 1200: 66.0},
-    # A-kast geschikt voor planken (rij 8)
-    8: {300: 51.0, 400: 55.0, 500: 60.0, 600: 64.0, 800: 77.0, 900: 81.0, 1000: 85.0, 1200: 92.0},
-
-    # B-kasten (hoge kasten)
-    # Leeg 2080–2770 (rij 11)
-    11: {300: 85.0, 400: 89.0, 500: 92.0, 600: 97.0, 800: 103.0, 900: 108.0, 1000: 114.0},
-    # Leeg 1001–2079 (rij 12)
-    12: {300: 80.0, 400: 84.0, 500: 87.0, 600: 90.0, 800: 95.0, 900: 98.0, 1000: 103.0},
-
-    # C-kasten (hangkasten) – corpusprijzen
-    # tot 390mm (leeg) (rij 15)
-    15: {300: 35.0, 400: 37.0, 500: 39.0, 600: 41.0, 800: 47.0, 900: 48.0, 1000: 50.0, 1200: 56.0},
-    # 391–520mm (1 plank inbegrepen) (rij 16)
-    16: {300: 39.0, 400: 42.0, 500: 45.0, 600: 47.0, 800: 56.0, 900: 58.0, 1000: 61.0, 1200: 67.0},
-    # 521–780mm (2 planken inbegrepen) (rij 17)
-    17: {300: 42.0, 400: 45.0, 500: 49.0, 600: 50.0, 800: 57.0, 900: 61.0, 1000: 66.0, 1200: 70.0},
-    # vanaf 781mm (2 planken inbegrepen) (rij 18)
-    18: {300: 46.0, 400: 48.0, 500: 51.0, 600: 55.0, 800: 61.0, 900: 65.0, 1000: 68.0, 1200: 75.0},
-
-    # Inrichtingen / accessoires
-    # B21 = Klepscharnieren (rij 21)
-    21: {300: 63.0, 400: 63.0, 500: 63.0, 600: 63.0, 800: 63.0, 900: 63.0, 1000: 63.0, 1200: 63.0},
-    # B22 = Plank voor A of B kast
-    22: {300: 4.5, 400: 6.3, 500: 7.5, 600: 7.6, 800: 10.6, 900: 11.8, 1000: 13.3, 1200: 15.75},
-    # B23 = Lades
-    23: {300: 68.0, 400: 68.0, 500: 68.0, 600: 68.0, 800: 68.0, 900: 68.0, 1000: 68.0, 1200: 68.0},
-    # B24 = Push to open lade
-    24: {300: 109.0, 400: 109.0, 500: 109.0, 600: 109.0, 800: 109.0, 900: 109.0, 1000: 109.0, 1200: 109.0},
-    # B25 = Scharnier (per stuk)
-    25: {300: 9.7, 400: 9.7, 500: 9.7, 600: 9.7, 800: 9.7, 900: 9.7, 1000: 9.7, 1200: 9.7},
-    # B26 = Bestek bak
-    26: {300: 33.0, 400: 33.0, 500: 33.0, 600: 33.0, 800: 33.0, 900: 33.0, 1000: 33.0, 1200: 33.0},
-    # B27 = Plastic bescherming spoelkast
-    27: {300: 33.0, 400: 33.0, 500: 33.0, 600: 33.0, 800: 33.0, 900: 33.0, 1000: 33.0, 1200: 33.0},
-    # B28 = Apothekers lade
-    28: {300: 546.0, 400: 546.0, 500: 546.0},
-    # B29 = Carrouselsysteem
-    29: {800: 452.0, 900: 452.0, 1000: 452.0, 1200: 452.0},
-}
-
-
-def _kies_staffel(breedte_mm: float) -> int:
-    """
-    Kies altijd de eerstvolgende staffel OMHOOG.
-    Voorbeeld: 610mm → 800mm.
-    """
-    if breedte_mm is None or math.isnan(float(breedte_mm)):
-        return BREEDTE_STAFFELS[0]
-    b = float(breedte_mm)
-    for s in BREEDTE_STAFFELS:
-        if b <= s:
-            return s
-    # als groter dan grootste staffel → pak grootste
-    return BREEDTE_STAFFELS[-1]
-
-
-def _prijs_uit_tabel(rij: int, breedte_mm: float) -> float:
-    """Haalt prijs op uit PRICE_TABLE op basis van rij + staffelbreedte."""
-    staffel = _kies_staffel(breedte_mm)
-    tabel = PRICE_TABLE.get(rij, {})
-    if staffel in tabel:
-        return tabel[staffel]
-    # fallback: pak hoogste beschikbare staffel in die rij
-    if not tabel:
-        return 0.0
-    max_staffel = max(tabel.keys())
-    return tabel[max_staffel]
-
-
-def _bepaal_materiaal_groep(frontmodel: str) -> str:
-    """
-    Zet model om naar materiaal-groep MDF / EIKEN / NOTEN.
-    Gebaseerd op MODEL_INFO materiaalvelden.
-    """
-    info = MODEL_INFO.get(frontmodel)
-    if not info:
-        return "MDF"
-    mat = info["materiaal"].lower()
-    if "eiken" in mat:
-        return "EIKEN"
-    if "noten" in mat:
-        return "NOTEN"
-    return "MDF"
-
-
-def _parse_int(value):
-    """Robuust omzetten naar int, 'Nee' → 0."""
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return 0
-    s = str(value).strip().lower()
-    if s in ("", "nee", "nvt", "n.v.t."):
-        return 0
-    try:
-        return int(float(s.replace(",", ".")))
-    except Exception:
-        return 0
-
-
-def _parse_inrichting_counts(tekst: str):
-    """
-    Haalt aantallen planken en lades uit een tekst als:
-    '3x plank, 1x lade'
-    """
-    import re
-    text = str(tekst).lower()
-    plank = 0
-    lade = 0
-    for qty, kind in re.findall(r"(\d+)\s*x?\s*(plank|planken|lade|lades|laden)", text):
-        q = int(qty)
-        if kind.startswith("plank"):
-            plank += q
-        else:
-            lade += q
-    return plank, lade
-
-
-def _kast_titel(kast_type: str) -> str:
-    kast_type = (kast_type or "").strip().upper()
-    if kast_type == "A":
-        return "Maatwerk onderkast"
-    if kast_type == "B":
-        return "Maatwerk hoge kast"
-    if kast_type == "C":
-        return "Maatwerk hangkast"
-    return "Maatwerk kast"
-
-
-def _beschrijving_uit_kastdict(k: dict) -> str:
-    """
-    Bouwt de beschrijving precies volgens de velden uit tabblad 2.
-    (1-op-1 opsomming)
-    """
-    regels = [
-        f"Type kast: {k.get('type_kast', '')}",
-        f"Hoogte: {k.get('hoogte', '')} mm",
-        f"Breedte: {k.get('breedte', '')} mm",
-        f"Diepte: {k.get('diepte', '')} mm",
-        f"Hoogte pootje: {k.get('hoogte_pootje', '')} mm",
-        f"Zichtbare zijde: {k.get('zichtbare_zijde', '')}",
-        f"Inrichting: {k.get('inrichting', '')}",
-        f"Scharnieren: {k.get('scharnieren', '')}",
-        f"Front: {k.get('frontmodel', '')}",
-        f"Front indeling: {k.get('front_indeling', '')}",
-        f"Kleur: {k.get('kleur_front', '')}",
-        f"Dubbelzijdig afgewerkt: {k.get('dubbelzijdig', '')}",
-        f"Handgreep: {k.get('handgreep', '')}",
-        f"Afwerking: {k.get('afwerking', '')}",
-    ]
-    return "\r\n".join(regels)
-
-
-def _bereken_maatwerk_kastprijs(k: dict) -> float:
-    """
-    Bereken de totale inkoopprijs voor één maatwerk kast (excl. btw).
-    Bestaat uit:
-      - corpusprijs (A/B/C) op basis van staffel
-      - inrichting (planken, lades, etc.)
-      - scharnieren
-      - fronten + zichtbare zijden op m²-prijs + 40% opslag
-    """
-    # Basisgegevens
-    kast_type = str(k.get("type_kast", "")).strip().upper()
-    hoogte = float(k.get("hoogte") or 0)
-    breedte = float(k.get("breedte") or 0)
-    diepte = float(k.get("diepte") or 0)
-    zichtbare_zijde = str(k.get("zichtbare_zijde") or "").strip().lower()
-    inrichting_tekst = str(k.get("inrichting") or "")
-    scharnieren_aantal = _parse_int(k.get("scharnieren"))
-    frontmodel = str(k.get("frontmodel") or "").strip().upper()
-    aantal_fronten = _parse_int(k.get("aantal_fronten"))
-
-    # ---------- 1. CORPUSPRIJS OP BASIS VAN TYPE / HOOGTE ----------
-    corpus_rij = None
-
-    if kast_type == "A":
-        # A = onderkasten tot 1000mm
-        # subtype bepalen via inrichting
-        plank_count, lade_count = _parse_inrichting_counts(inrichting_tekst)
-        if lade_count > 0:
-            # Onderkast geschikt voor lades
-            corpus_rij = 7
-        elif plank_count > 0:
-            # Onderkast geschikt voor planken (incl. 2 planken)
-            corpus_rij = 8
-        else:
-            # fallback: ladekast-prijstabel
-            corpus_rij = 7
-
-    elif kast_type == "B":
-        # B = hoge kasten tot 2770mm
-        if hoogte >= 2080:
-            # Hoge kast (leeg) 2080–2770
-            corpus_rij = 11
-        elif hoogte >= 1001:
-            # Hoge kast (leeg) 1001–2079
-            corpus_rij = 12
-
-    elif kast_type == "C":
-        # C = hangkasten, verschillende hoogtes
-        if hoogte <= 390:
-            corpus_rij = 15  # geen planken inbegrepen
-        elif 391 <= hoogte <= 520:
-            corpus_rij = 16  # 1 plank inbegrepen
-        elif 521 <= hoogte <= 780:
-            corpus_rij = 17  # 2 planken inbegrepen
-        else:  # >= 781
-            corpus_rij = 18  # 2 planken inbegrepen
-
-    corpus_prijs = 0.0
-    if corpus_rij:
-        corpus_prijs = _prijs_uit_tabel(corpus_rij, breedte)
-
-    # ---------- 2. INRICHTING – PLANKEN EN LADES ----------
-    plank_count, lade_count = _parse_inrichting_counts(inrichting_tekst)
-
-    # inbegrepen planken per type/hoogte
-    inbegrepen_planken = 0
-    if kast_type == "A":
-        # Alleen A-kast geschikt voor planken heeft 2 inbegrepen planken
-        if corpus_rij == 8:
-            inbegrepen_planken = 2
-    elif kast_type == "C":
-        if hoogte <= 390:
-            inbegrepen_planken = 0
-        elif 391 <= hoogte <= 520:
-            inbegrepen_planken = 1
-        elif hoogte <= 780:
-            inbegrepen_planken = 2
-        else:
-            inbegrepen_planken = 2
-
-    extra_planken = max(0, plank_count - inbegrepen_planken)
-
-    # Plankprijs (B22)
-    plank_prijs_per_stuk = _prijs_uit_tabel(22, breedte) if extra_planken > 0 else 0.0
-    planken_prijs = extra_planken * plank_prijs_per_stuk
-
-    # Ladeprijs (B23)
-    lade_prijs_per_stuk = _prijs_uit_tabel(23, breedte) if lade_count > 0 else 0.0
-    lades_prijs = lade_count * lade_prijs_per_stuk
-
-    # ---------- 3. SCHARNIEREN (B25) ----------
-    scharnier_prijs_per_stuk = _prijs_uit_tabel(25, breedte) if scharnieren_aantal > 0 else 0.0
-    scharnieren_prijs = scharnieren_aantal * scharnier_prijs_per_stuk
-
-    # ---------- 4. FRONTEN + ZIJKANTEN (m²) + 40% OPSLAG ----------
-    # Front-oppervlakte (totale frontvlak)
-    front_hoogte_m = hoogte / 1000.0
-    front_breedte_m = breedte / 1000.0
-    front_m2 = front_hoogte_m * front_breedte_m
-
-    # m²-prijs front
-    m2_prijs_front = FRONT_M2_PRICES.get(frontmodel, 0.0)
-    front_m2_prijs = front_m2 * m2_prijs_front
-
-    # Zichtbare zijden
-    zij_m2_totaal = 0.0
-    z = zichtbare_zijde
-    # we werken met hoogte x diepte voor een zijvlak
-    zij_hoogte_m = front_hoogte_m
-    zij_diepte_m = diepte / 1000.0
-    zij_m2 = zij_hoogte_m * zij_diepte_m
-
-    if "links" in z and "rechts" in z:
-        zij_m2_totaal = 2 * zij_m2
-    elif "links" in z or "rechts" in z:
-        zij_m2_totaal = zij_m2
-
-    # m²-prijs voor vlakke zijkant op basis van materiaal-groep
-    materiaal_groep = _bepaal_materiaal_groep(frontmodel)
-    vlak_model = VLAK_MODEL_PER_MATERIAALGROEP.get(materiaal_groep, "NOAH")
-    vlak_m2_prijs = FRONT_M2_PRICES.get(vlak_model, 0.0)
-
-    zij_prijs = zij_m2_totaal * vlak_m2_prijs
-
-    tot_m2_prijs = front_m2_prijs + zij_prijs
-
-    # 40% opslag voor montage van fronten op de kasten
-    tot_m2_prijs_met_opslag = tot_m2_prijs * 1.40
-
-    # ---------- 5. TOTAAL PER KAST ----------
-    totaal_kast = corpus_prijs + planken_prijs + lades_prijs + scharnieren_prijs + tot_m2_prijs_met_opslag
-
-    return round(totaal_kast, 2)
-
-
-def _bereken_maatwerk_kasten(maatwerk_kasten_lijst):
-    """
-    Loopt door alle kasten (kolommen B t/m K van tabblad 2) en
-    berekent per kast de prijs + omschrijving voor Teamleader.
-    """
-    resultaten = []
-    totaal = 0.0
-
-    for kast in maatwerk_kasten_lijst:
-        prijs = _bereken_maatwerk_kastprijs(kast)
-        totaal += prijs
-
-        resultaten.append({
-            "titel": _kast_titel(kast.get("type_kast")),
-            "beschrijving": _beschrijving_uit_kastdict(kast),
-            "prijs_excl": prijs,
-        })
-
-    return resultaten, round(totaal, 2)
-
-
-# ======================================================
 # 📥 EXCEL UITLEZEN
 # ======================================================
 
-def lees_excel(path):
-    """
-    Leest zowel:
-      - tabblad 1 (renovatie-fronten)
-      - tabblad 2 (maatwerk kasten)
-    en retourneert ALLES in één keer.
-    """
-    # Tabblad 1 = bestaande logica
+def _lees_fronten_sheet(path):
+    """Bestaande logica – tabblad 1 (fronten)."""
     df = pd.read_excel(path, sheet_name=0, header=None)
 
     onderdelen = df.iloc[:, 5].dropna().astype(str).str.upper().tolist()
@@ -516,86 +341,465 @@ def lees_excel(path):
 
     project = os.path.splitext(os.path.basename(path))[0]
 
-    # Tabblad 2 = maatwerk kasten
-    maatwerk_kasten = []
+    return onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project
+
+
+def _normalize_label(label: str) -> str:
+    if not isinstance(label, str):
+        label = str(label)
+    return label.strip().lower()
+
+
+def lees_maatwerk_kasten_sheet(path):
+    """
+    Leest tabblad 2: maatwerk kasten.
+    Verwacht in kolom A de labels (Type kast, Hoogte, Breedte, etc.)
+    en in kolommen B t/m K per kolom één kast.
+    """
     try:
-        df2 = pd.read_excel(path, sheet_name=1, header=None)
-        maatwerk_kasten = _lees_maatwerk_kasten_tab2(df2)
+        df = pd.read_excel(path, sheet_name=1, header=None)
     except Exception:
-        # Als tabblad 2 ontbreekt, gewoon geen maatwerk kasten
-        maatwerk_kasten = []
-
-    return onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project, maatwerk_kasten
-
-
-def _lees_maatwerk_kasten_tab2(df2):
-    """
-    Leest tabblad 2 structuur:
-    Kolom A: labels (Hoogte, Breedte, Diepte, etc.)
-    Kolommen B t/m K: per kolom één kast.
-    """
-    # Map labels naar interne veldnamen
-    label_to_field = {
-        "type kast": "type_kast",
-        "hoogte": "hoogte",
-        "breedte": "breedte",
-        "diepte": "diepte",
-        "hoogte pootje": "hoogte_pootje",
-        "kleur corpus": "kleur_corpus",
-        "zichtbare zijde": "zichtbare_zijde",
-        "inrichting": "inrichting",
-        "scharnieren": "scharnieren",
-        "front": "frontmodel",
-        "front indeling": "front_indeling",
-        "kleur": "kleur_front",
-        "dubbelzijdig afgewerkt": "dubbelzijdig",
-        "handgreep": "handgreep",
-        "afwerking": "afwerking",
-        "aantal fronten": "aantal_fronten",
-    }
-
-    # Zoek per label de rij-index
-    label_rows = {}
-    for r in range(df2.shape[0]):
-        val = str(df2.iloc[r, 0]).strip().lower().rstrip(":")
-        if val in label_to_field:
-            label_rows[val] = r
-
-    # Als er geen 'type kast' label is, kunnen we niets doen
-    if "type kast" not in label_rows:
         return []
 
+    labels = df.iloc[:, 0].astype(str).apply(_normalize_label)
     kasten = []
-    # Kolommen 1.. tot einde (B t/m K)
-    for col in range(1, df2.shape[1]):
-        type_row = label_rows["type kast"]
-        type_val = df2.iloc[type_row, col]
-        if pd.isna(type_val) or str(type_val).strip() == "":
-            continue  # geen kast in deze kolom
 
-        kast_data = {}
-        for label, field in label_to_field.items():
-            r = label_rows.get(label)
-            if r is None:
+    # Kolommen B t/m K (index 1 t/m 10)
+    for col in range(1, min(11, df.shape[1])):
+        col_values = df.iloc[:, col]
+
+        # check of er überhaupt iets ingevuld is
+        if col_values.isna().all():
+            continue
+
+        kast = {
+            "kolom": col,  # ter info/debuggen
+            "raw": {},
+        }
+
+        for row_idx, lab in enumerate(labels):
+            value = col_values.iloc[row_idx]
+            if (isinstance(value, float) or isinstance(value, int)) and pd.isna(value):
                 continue
-            value = df2.iloc[r, col] if r < df2.shape[0] else None
-            if pd.isna(value):
-                value = None
-            kast_data[field] = value
+            if str(value).strip() == "" or str(value).strip().lower() == "nan":
+                continue
 
-        kasten.append(kast_data)
+            kast["raw"][lab] = value
+
+        # beslissen of dit echt een kast is: minimaal type of hoogte/breedte
+        has_type = any("type" in k for k in kast["raw"].keys())
+        has_hoogte = any("hoogte" in k and "poot" not in k for k in kast["raw"].keys())
+        has_breedte = any("breedte" in k for k in kast["raw"].keys())
+
+        if not (has_type or (has_hoogte and has_breedte)):
+            continue
+
+        kasten.append(kast)
 
     return kasten
 
 
+def lees_excel(path):
+    """
+    Hoofd-ingang:
+    - fronten + klantdata (bestaand gedrag)
+    - maatwerk kasten (nieuw) van tabblad 2
+    """
+    onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = _lees_fronten_sheet(path)
+    maatwerk_kasten = lees_maatwerk_kasten_sheet(path)
+
+    return onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project, maatwerk_kasten
+
+
 # ======================================================
-# 🧮 OFFERTE BEREKENING (RENOVATIE + MAATWERK KASTEN)
+# 🧮 MAATWERK KASTEN BEREKENING
 # ======================================================
 
-def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades, maatwerk_kasten):
+def _bepaal_kasttype_en_basisprijs(kast, staffel_breedte):
     """
-    Bestaande renovatie-berekening + aanvulling met maatwerk kasten.
+    Bepaalt A/B/C en subtype en levert basis kastprijs (zonder inrichting, fronten, zijkanten).
     """
+    raw = kast.get("raw", {})
+    # type kast staat in label met 'type kast'
+    type_kast = None
+    for k, v in raw.items():
+        if "type" in k and "kast" in k:
+            type_kast = str(v).strip().upper()
+            break
+
+    hoogte = None
+    for k, v in raw.items():
+        if "hoogte" in k and "poot" not in k:
+            try:
+                hoogte = float(v)
+            except (TypeError, ValueError):
+                hoogte = None
+            break
+
+    # default
+    if type_kast not in ("A", "B", "C"):
+        # eventueel op hoogte afleiden
+        if hoogte is not None and hoogte <= 1000:
+            type_kast = "A"
+        elif hoogte is not None and hoogte > 1000:
+            type_kast = "B"
+
+    basisprijs = 0.0
+    subtype = None
+
+    # inrichting uitlezen voor subtype A
+    inrichting_str = ""
+    for k, v in raw.items():
+        if "inrichting" in k:
+            inrichting_str = str(v)
+            break
+    inrichting_counts = parse_inrichting(inrichting_str)
+
+    if type_kast == "A":
+        # A-kast: onderkast tot 1000mm
+        # subtype op basis van inrichting:
+        if inrichting_counts["lade"] > 0:
+            subtype = "A_LADES"
+            basisprijs = KASTPRIJS_A_LADES.get(staffel_breedte, 0.0)
+        elif inrichting_counts["plank"] > 0:
+            subtype = "A_PLANK"
+            basisprijs = KASTPRIJS_A_PLANK2.get(staffel_breedte, 0.0)
+        else:
+            subtype = "A_OVEN"
+            basisprijs = KASTPRIJS_A_OVEN.get(staffel_breedte, 0.0)
+
+    elif type_kast == "B":
+        # hoge kasten
+        if hoogte is None:
+            subtype = "B_ONBEKEND"
+            basisprijs = 0.0
+        else:
+            if hoogte >= 2080:
+                subtype = "B_HOOG_2080_2600"
+                basisprijs = KASTPRIJS_B_2080_2600.get(staffel_breedte, 0.0)
+            elif hoogte >= 1001:
+                subtype = "B_HOOG_1000_1950"
+                basisprijs = KASTPRIJS_B_1000_1950.get(staffel_breedte, 0.0)
+            else:
+                subtype = "B_HOOG_1000_1950"
+                basisprijs = KASTPRIJS_B_1000_1950.get(staffel_breedte, 0.0)
+
+    elif type_kast == "C":
+        # hangkasten
+        if hoogte is None:
+            subtype = "C_ONBEKEND"
+            basisprijs = 0.0
+        else:
+            if hoogte <= 390:
+                subtype = "C_390"
+                basisprijs = KASTPRIJS_C_390.get(staffel_breedte, 0.0)
+            elif 391 <= hoogte <= 520:
+                subtype = "C_391_520"
+                basisprijs = KASTPRIJS_C_391_520.get(staffel_breedte, 0.0)
+            elif 521 <= hoogte <= 780:
+                subtype = "C_521_780"
+                basisprijs = KASTPRIJS_C_521_780.get(staffel_breedte, 0.0)
+            else:  # >= 781
+                subtype = "C_781P"
+                basisprijs = KASTPRIJS_C_781P.get(staffel_breedte, 0.0)
+
+    return type_kast, subtype, basisprijs, inrichting_counts, hoogte
+
+
+def _bepaal_inbegrepen_planken(type_kast, subtype, hoogte):
+    """
+    Regels:
+    - A-kast planken: kast met 2 planken → 2 inbegrepen
+    - C-kasten:
+        t/m 390 mm: 0
+        391–520: 1
+        521–780: 2
+        >=781: 2
+    """
+    if type_kast == "A" and subtype == "A_PLANK":
+        return 2
+
+    if type_kast == "C":
+        if hoogte is None:
+            return 0
+        if hoogte <= 390:
+            return 0
+        elif 391 <= hoogte <= 520:
+            return 1
+        elif 521 <= hoogte <= 780:
+            return 2
+        else:
+            return 2
+
+    return 0
+
+
+def _bereken_front_en_zijkanten_prijs(kast, hoogte_mm, breedte_mm, diepte_mm):
+    raw = kast.get("raw", {})
+
+    frontmodel = None
+    kleur = None
+    zichtbare_zijde = ""
+    for k, v in raw.items():
+        lk = k.lower()
+        if "front" in lk and "indeling" not in lk:
+            frontmodel = str(v).strip().upper()
+        elif "kleur" in lk:
+            kleur = str(v).strip()
+        elif "zichtbare" in lk:
+            zichtbare_zijde = str(v).strip().lower()
+
+    if frontmodel not in M2_FRONT_PRIJZEN:
+        # geen frontmodel → geen prijs voor fronten
+        return 0.0
+
+    m2_prijs_front = M2_FRONT_PRIJZEN[frontmodel]
+
+    # front-oppervlakte (totaal)
+    try:
+        h_m = float(hoogte_mm) / 1000.0
+        b_m = float(breedte_mm) / 1000.0
+        d_m = float(diepte_mm) / 1000.0
+    except (TypeError, ValueError):
+        return 0.0
+
+    front_m2 = h_m * b_m
+    front_prijs = front_m2 * m2_prijs_front
+
+    # materiaal bepalen voor vlak model (voor zijkant)
+    info = MODEL_INFO.get(frontmodel)
+    zijkant_prijs = 0.0
+    if info:
+        materiaal = info["materiaal"]  # "MDF gespoten", "Eikenfineer", "Noten fineer"
+        vlak_model = VLAK_MODEL_PER_MATERIAAL.get(materiaal)
+        if vlak_model:
+            m2_prijs_vlak = M2_FRONT_PRIJZEN[vlak_model]
+
+            # zichtbare zijde: ja, links / rechts / beide
+            zijden = 0
+            txt = zichtbare_zijde
+            if "links" in txt and "rechts" in txt:
+                zijden = 2
+            elif "beide" in txt:
+                zijden = 2
+            elif "ja" in txt and ("links" in txt or "rechts" in txt):
+                zijden = 1
+            elif txt.strip().lower() in ("links", "rechts"):
+                zijden = 1
+
+            if zijden > 0:
+                zij_m2 = h_m * d_m
+                zijkant_prijs = zijden * zij_m2 * m2_prijs_vlak
+
+    # 40% opslag voor montage fronten op kasten
+    totaal = (front_prijs + zijkant_prijs) * 1.40
+    return round(totaal, 2)
+
+
+def bereken_maatwerk_kasten(maatwerk_kasten_raw):
+    """
+    Neemt lijst zoals uit lees_maatwerk_kasten_sheet
+    en berekent per kast:
+    - inkoopprijs
+    - verkoopprijs (inkoop / 0.4)
+    - type titel ("Maatwerk hoge kast" etc.)
+    - beschrijvingstekst (opsomming zoals Excel)
+    """
+    resultaten = []
+    totaal_inkoop = 0.0
+
+    for kast in maatwerk_kasten_raw:
+        raw = kast.get("raw", {})
+
+        # basis-gegevens uit raw
+        hoogte = None
+        breedte = None
+        diepte = None
+        hoogte_poot = None
+        inrichting_str = ""
+        zichtbare_zijde = ""
+        scharnieren_kast = 0
+        frontmodel = ""
+        kleur_corpus = ""
+        dubbelzijdig = ""
+        handgreep = ""
+        afwerking = ""
+        type_kast_label = ""
+
+        for k, v in raw.items():
+            lk = k.lower()
+
+            if "type" in lk and "kast" in lk:
+                type_kast_label = str(v).strip()
+
+            elif "hoogte poot" in lk or "hoogte pootje" in lk:
+                try:
+                    hoogte_poot = float(v)
+                except (TypeError, ValueError):
+                    hoogte_poot = None
+
+            elif "hoogte" in lk and "poot" not in lk:
+                try:
+                    hoogte = float(v)
+                except (TypeError, ValueError):
+                    hoogte = None
+
+            elif "breedte" in lk:
+                try:
+                    breedte = float(v)
+                except (TypeError, ValueError):
+                    breedte = None
+
+            elif "diepte" in lk:
+                try:
+                    diepte = float(v)
+                except (TypeError, ValueError):
+                    diepte = None
+
+            elif "inrichting" in lk:
+                inrichting_str = str(v)
+
+            elif "zichtbare" in lk:
+                zichtbare_zijde = str(v)
+
+            elif "scharnier" in lk:
+                scharnieren_kast = parse_int_safe(v)
+
+            elif "front indeling" in lk:
+                # wordt alleen in beschrijving gebruikt
+                pass
+
+            elif "front" in lk and "indeling" not in lk:
+                frontmodel = str(v).strip().upper()
+
+            elif "kleur corpus" in lk:
+                kleur_corpus = str(v).strip()
+
+            elif lk == "kleur" or "kleur:" in lk:
+                # kleur front
+                pass
+
+            elif "dubbelzijdig" in lk:
+                dubbelzijdig = str(v).strip()
+
+            elif "handgreep" in lk:
+                handgreep = str(v).strip()
+
+            elif "afwerking" in lk:
+                afwerking = str(v).strip()
+
+        if hoogte is None or breedte is None or diepte is None:
+            # onvoldoende data om prijs te berekenen
+            continue
+
+        staffel = kies_breedte_staffel(breedte)
+        type_kast, subtype, basisprijs, inrichting_counts, hoogte_mm = _bepaal_kasttype_en_basisprijs(
+            kast, staffel
+        )
+
+        # inbegrepen planken per type
+        inbegrepen_planken = _bepaal_inbegrepen_planken(type_kast, subtype, hoogte_mm or hoogte)
+
+        # inrichting extra prijzen
+        extra_planken = max(0, inrichting_counts["plank"] - inbegrepen_planken)
+        plank_prijs = extra_planken * PRIJS_PLANK_AB.get(staffel, 0.0)
+
+        lade_prijs = inrichting_counts["lade"] * PRIJS_LADES_KAST.get(staffel, 0.0)
+        bestek_prijs = inrichting_counts["bestekbak"] * PRIJS_BESTEK_BAK.get(staffel, 0.0)
+        apotheker_prijs = inrichting_counts["apotheker"] * PRIJS_APOTHEKER.get(staffel, 0.0)
+        carrousel_prijs = inrichting_counts["carrousel"] * PRIJS_CARROUSEL.get(staffel, 0.0)
+        klep_prijs = inrichting_counts["klepscharnier"] * PRIJS_KLEPSCHARNIER.get(staffel, 0.0)
+        push_prijs = inrichting_counts["push_lade"] * PRIJS_PUSH_LADE.get(staffel, 0.0)
+        plastic_prijs = inrichting_counts["plastic_spoel"] * PRIJS_PLASTIC_SPOEL.get(staffel, 0.0)
+
+        # scharnieren volgens kast-prijslijst
+        scharnier_prijs = scharnieren_kast * PRIJS_SCHARNIER_KAST.get(staffel, 0.0)
+
+        # fronten + zijkant + 40% opslag
+        front_en_zijkant_prijs = _bereken_front_en_zijkanten_prijs(
+            kast, hoogte, breedte, diepte
+        )
+
+        inkoop = (
+            basisprijs +
+            plank_prijs +
+            lade_prijs +
+            bestek_prijs +
+            apotheker_prijs +
+            carrousel_prijs +
+            klep_prijs +
+            push_prijs +
+            plastic_prijs +
+            scharnier_prijs +
+            front_en_zijkant_prijs
+        )
+
+        verkoop = round(inkoop / 0.4, 2) if inkoop > 0 else 0.0
+        totaal_inkoop += inkoop
+
+        # titel per type
+        if type_kast == "A":
+            titel = "Maatwerk onderkast"
+        elif type_kast == "B":
+            titel = "Maatwerk hoge kast"
+        elif type_kast == "C":
+            titel = "Maatwerk hangkast"
+        else:
+            titel = "Maatwerk kast"
+
+        # beschrijving: opsomming zoals in Excel
+        beschrijvingsregels = []
+        # we reconstrueren in een vaste volgorde m.b.v. de bekende labels
+        raw_l = {k.lower(): v for k, v in raw.items()}
+
+        def get_label(stuk):
+            for k, v in raw_l.items():
+                if stuk in k:
+                    return v
+            return ""
+
+        beschrijvingsregels.append(f"Type kast: {type_kast_label or type_kast}")
+        beschrijvingsregels.append(f"Hoogte: {hoogte:.0f} mm")
+        beschrijvingsregels.append(f"Breedte: {breedte:.0f} mm")
+        beschrijvingsregels.append(f"Diepte: {diepte:.0f} mm")
+        if hoogte_poot is not None:
+            beschrijvingsregels.append(f"Hoogte pootje: {hoogte_poot:.0f} mm")
+        beschrijvingsregels.append(f"Kleur corpus: {kleur_corpus}")
+        beschrijvingsregels.append(f"Zichtbare zijde: {zichtbare_zijde}")
+        beschrijvingsregels.append(f"Inrichting: {inrichting_str}")
+        beschrijvingsregels.append(f"Scharnieren: {scharnieren_kast}")
+        beschrijvingsregels.append(f"Frontmodel: {frontmodel}")
+        fi = get_label("front indeling")
+        if fi:
+            beschrijvingsregels.append(f"Front indeling: {fi}")
+        kleur_front = get_label("kleur")
+        if kleur_front:
+            beschrijvingsregels.append(f"Kleur: {kleur_front}")
+        if dubbelzijdig:
+            beschrijvingsregels.append(f"Dubbelzijdig afgewerkt: {dubbelzijdig}")
+        if handgreep:
+            beschrijvingsregels.append(f"Handgreep: {handgreep}")
+        if afwerking:
+            beschrijvingsregels.append(f"Afwerking: {afwerking}")
+
+        beschrijving = "\r\n".join(beschrijvingsregels)
+
+        resultaten.append({
+            "titel": titel,
+            "beschrijving": beschrijving,
+            "inkoop": round(inkoop, 2),
+            "verkoop": verkoop,
+        })
+
+    return resultaten, totaal_inkoop
+
+
+# ======================================================
+# 🧮 OFFERTE BEREKENING (FRONTEN + MAATWERK KASTEN)
+# ======================================================
+
+def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades, maatwerk_kasten_raw):
+
     info = MODEL_INFO[model]
 
     fronts = sum(o in ["DEUR", "LADE", "BEDEKKINGSPANEEL"] for o in onderdelen)
@@ -610,7 +814,8 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
     scharnier_totaal = scharnieren * PRIJS_SCHARNIER
     lades_totaal = lades * PRIJS_LADE
 
-    totaal_excl = (
+    # Bestaand totaal voor keukenrenovatie (fronten e.d.)
+    totaal_excl_fronten = (
         materiaal_totaal +
         passtuk_kosten +
         anders_kosten +
@@ -621,11 +826,11 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         lades_totaal
     )
 
-    # ===== MAATWERK KASTEN BEREKENING =====
-    maatwerk_regels, maatwerk_totaal_excl = _bereken_maatwerk_kasten(maatwerk_kasten or [])
+    # NIEUW: maatwerk kasten
+    maatwerk_kasten, maatwerk_inkoop = bereken_maatwerk_kasten(maatwerk_kasten_raw)
+    maatwerk_verkoop_totaal = round(maatwerk_inkoop / 0.4, 2) if maatwerk_inkoop > 0 else 0.0
 
-    totaal_excl += maatwerk_totaal_excl
-
+    totaal_excl = totaal_excl_fronten + maatwerk_verkoop_totaal
     btw = totaal_excl * 0.21
     totaal_incl = totaal_excl + btw
 
@@ -648,10 +853,10 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         "totaal_excl": totaal_excl,
         "btw": btw,
         "totaal_incl": totaal_incl,
-
-        # Maatwerk kasten
-        "maatwerk_kasten": maatwerk_regels,
-        "maatwerk_kasten_totaal_excl": maatwerk_totaal_excl,
+        # maatwerk kasten info
+        "maatwerk_kasten": maatwerk_kasten,
+        "maatwerk_inkoop_totaal": round(maatwerk_inkoop, 2),
+        "maatwerk_verkoop_totaal": maatwerk_verkoop_totaal,
     }
 
 
@@ -678,9 +883,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # -----------------------------  
-    # KLANTGEGEVENS  
-    # -----------------------------  
+    # -----------------------------
+    # KLANTGEGEVENS
+    # -----------------------------
 
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
@@ -693,9 +898,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
         }],
     })
 
-    # -----------------------------  
-    # PARTICULIER  
-    # -----------------------------  
+    # -----------------------------
+    # PARTICULIER
+    # -----------------------------
 
     if mode == "P":
         tekst = []
@@ -737,6 +942,8 @@ def maak_teamleader_offerte(deal_id, data, mode):
         if data["lades"] > 0:
             tekst.append(f"- Inclusief plaatsen maatwerk lades ({data['lades']} stuks)")
 
+        # Maatwerk kasten tekstueel kun je later eventueel nog toevoegen;
+        # nu staat hun prijs wel in het totaal.
         final = "\r\n".join(tekst)
 
         grouped_lines.append({
@@ -750,9 +957,9 @@ def maak_teamleader_offerte(deal_id, data, mode):
             }],
         })
 
-    # -----------------------------  
-    # DEALER  
-    # -----------------------------  
+    # -----------------------------
+    # DEALER
+    # -----------------------------
 
     else:
         section = {
@@ -823,6 +1030,23 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
             grouped_lines.append(acc)
 
+        # MAATWERK KASTEN – NA KEUKENRENOVATIE, VOOR INMETEN/MONTAGE
+        maatwerk_kasten = data.get("maatwerk_kasten") or []
+        if maatwerk_kasten:
+            mk_section = {
+                "section": {"title": "MAATWERK KASTEN"},
+                "line_items": []
+            }
+            for kast in maatwerk_kasten:
+                mk_section["line_items"].append({
+                    "quantity": 1,
+                    "description": kast["titel"],
+                    "extended_description": kast["beschrijving"],
+                    "unit_price": {"amount": kast["verkoop"], "tax": "excluding"},
+                    "tax_rate_id": TAX_RATE_21_ID,
+                })
+            grouped_lines.append(mk_section)
+
         # INMETEN EN MONTAGE
         grouped_lines.append({
             "section": {"title": "INMETEN, LEVEREN & MONTEREN"},
@@ -850,27 +1074,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 },
             ],
         })
-
-    # -----------------------------
-    # MAATWERK KASTEN – NIEUWE SECTIE
-    # -----------------------------
-    maatwerk_regels = data.get("maatwerk_kasten", [])
-    if maatwerk_regels:
-        section_mk = {
-            "section": {"title": "MAATWERK KASTEN"},
-            "line_items": []
-        }
-
-        for kast in maatwerk_regels:
-            section_mk["line_items"].append({
-                "quantity": 1,
-                "description": kast["titel"],
-                "extended_description": kast["beschrijving"],
-                "unit_price": {"amount": kast["prijs_excl"], "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
-            })
-
-        grouped_lines.append(section_mk)
 
     payload = {
         "deal_id": deal_id,

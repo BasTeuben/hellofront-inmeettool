@@ -153,7 +153,6 @@ VLAK_MODEL_PER_MATERIAAL = {
 
 # ======================================================
 # 🧮 PRIJS-TABELLEN MAATWERK KASTEN (CORPUS + INRICHTING)
-# Gebaseerd op het prijsoverzicht (staffels C–J = 300–1200 mm)
 # ======================================================
 
 BREEDTE_STAFFELS = [300, 400, 500, 600, 800, 900, 1000, 1200]
@@ -439,14 +438,12 @@ def _bereken_maatwerk_kast(kast: dict):
 
     if kast_type == "A":
         # A-kast: onderkast tot 1000mm
-        # Subtype bepalen via inrichting: lades of planken of ovens
         inrichting_raw = (kast.get("inrichting_raw") or "").lower()
         if "lade" in inrichting_raw:
             # ladekast
             corpus_inkoop = A_LADE_KAST[idx]
         elif "plank" in inrichting_raw:
-            # voor nu zelfde prijslijn als ladekast, tenzij je later
-            # aparte rij doorgeeft
+            # onderkast geschikt voor planken (zelfde prijslijn voor nu)
             corpus_inkoop = A_LADE_KAST[idx]
         else:
             # ovenkast
@@ -524,7 +521,6 @@ def _bereken_maatwerk_kast(kast: dict):
         inrichting_inkoop += carrousels * CARROUSEL[idx]
 
     if klepscharnieren > 0:
-        # Zelfde prijs als scharnier per stuk
         inrichting_inkoop += klepscharnieren * SCHARNIER_PER_STUK_MAATWERK[idx]
 
     # Scharnieren (deurscharnieren uit veld "Scharnieren")
@@ -540,7 +536,6 @@ def _bereken_maatwerk_kast(kast: dict):
 
     frontmodel = (kast.get("frontmodel") or "").upper()
     if frontmodel not in M2_FRONT_PRIJZEN:
-        # fallback: geen frontprijs → 0
         front_m2_prijs = 0.0
     else:
         front_m2_prijs = M2_FRONT_PRIJZEN[frontmodel]

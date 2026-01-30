@@ -13,7 +13,7 @@ CLIENT_ID = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
-REDIRECT_URI = "https://hellofront-inmeettool-production.up.railway.app/"
+REDIRECT_URI = os.environ.get("REDIRECT_URI", "https://hokenstudio-inmeettool-production.up.railway.app/")
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 

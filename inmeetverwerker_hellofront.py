@@ -807,6 +807,8 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
+    tax_rate_id_21 = get_tax_rate_21_id()
+
     # -----------------------------
     # KLANTGEGEVENS
     # -----------------------------
@@ -818,7 +820,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
             "description": "Klantgegevens",
             "extended_description": klanttekst,
             "unit_price": {"amount": 0, "tax": "excluding"},
-            "tax_rate_id": get_tax_rate_21_id(),
+            "tax_rate_id": tax_rate_id_21,
         }],
     })
 
@@ -871,7 +873,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         final = "\r\n".join(tekst)
 
-        # Keukenrenovatie-bedrag ZONDER maatwerk kasten
         keuken_bedrag = round(data["totaal_excl"] - maatwerk_totaal, 2)
 
         grouped_lines.append({
@@ -881,11 +882,10 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": f"Keukenrenovatie model {model}",
                 "extended_description": final,
                 "unit_price": {"amount": keuken_bedrag, "tax": "excluding"},
-                "tax_rate_id": get_tax_rate_21_id(),
+                "tax_rate_id": tax_rate_id_21,
             }],
         })
 
-        # MAATWERK KASTEN ALS APARTE SECTIE (variant B)
         if maatwerk_kasten:
             mk_section = {
                 "section": {"title": "MAATWERK KASTEN"},
@@ -897,14 +897,13 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_id_21,
                 })
             grouped_lines.append(mk_section)
 
     # -----------------------------
     # DEALER
     # -----------------------------
-
     else:
         section = {
             "section": {"title": "KEUKENRENOVATIE"},
@@ -927,7 +926,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "Fronten worden geleverd zonder scharnieren"
             ),
             "unit_price": {"amount": data["prijs_per_front"], "tax": "excluding"},
-            "tax_rate_id": TAX_RATE_21_ID,
+            "tax_rate_id": tax_rate_id_21,
         })
 
         if data["toeslag_passtuk"] > 0:
@@ -936,7 +935,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Plinten en/of passtukken",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_passtuk"], "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": tax_rate_id_21,
             })
 
         if data["toeslag_anders"] > 0:
@@ -945,14 +944,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Licht- en/of sierlijsten",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_anders"], "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": tax_rate_id_21,
             })
 
         grouped_lines.append(section)
 
-        # -----------------------------
-        # MAATWERK KASTEN (NA KEUKENRENOVATIE, VOOR INMETEN/MONTAGE)
-        # -----------------------------
         if maatwerk_kasten:
             mk_section = {
                 "section": {"title": "MAATWERK KASTEN"},
@@ -964,9 +960,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_id_21,
                 })
             grouped_lines.append(mk_section)
+
+        if data["scharnieren"] > 0 or data["l]()
 
         # ACCESSOIRES (FRONT-SCHARNIEREN/LADES)
         if data["scharnieren"] > 0 or data["lades"] > 0:

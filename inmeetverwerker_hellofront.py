@@ -14,6 +14,8 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
+# 21% BTW
+TAX_RATE_21_ID = "94da9f7d-9bf3-04fb-ac49-404ed252c381"
 
 # Vaste kosten
 MONTAGE_PER_FRONT = 34.71
@@ -807,8 +809,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    tax_rate_id_21 = get_tax_rate_21_id()
-
     # -----------------------------
     # KLANTGEGEVENS
     # -----------------------------
@@ -820,7 +820,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
             "description": "Klantgegevens",
             "extended_description": klanttekst,
             "unit_price": {"amount": 0, "tax": "excluding"},
-            "tax_rate_id": get_tax_rate_21_id(),
+            "tax_rate_id": TAX_RATE_21_ID,
         }],
     })
 
@@ -873,6 +873,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         final = "\r\n".join(tekst)
 
+        # Keukenrenovatie-bedrag ZONDER maatwerk kasten
         keuken_bedrag = round(data["totaal_excl"] - maatwerk_totaal, 2)
 
         grouped_lines.append({
@@ -882,11 +883,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": f"Keukenrenovatie model {model}",
                 "extended_description": final,
                 "unit_price": {"amount": keuken_bedrag, "tax": "excluding"},
-                "tax_rate_id": get_tax_rate_21_id(),
+                "tax_rate_id": TAX_RATE_21_ID,
             }],
         })
 
-       # MAATWERK KASTEN ALS APARTE SECTIE (variant B)
+        # MAATWERK KASTEN ALS APARTE SECTIE (variant B)
         if maatwerk_kasten:
             mk_section = {
                 "section": {"title": "MAATWERK KASTEN"},
@@ -898,7 +899,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 })
             grouped_lines.append(mk_section)
 
@@ -928,7 +929,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "Fronten worden geleverd zonder scharnieren"
             ),
             "unit_price": {"amount": data["prijs_per_front"], "tax": "excluding"},
-            "tax_rate_id": get_tax_rate_21_id(),
+            "tax_rate_id": TAX_RATE_21_ID,
         })
 
         if data["toeslag_passtuk"] > 0:
@@ -937,7 +938,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Plinten en/of passtukken",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_passtuk"], "tax": "excluding"},
-                "tax_rate_id": get_tax_rate_21_id(),
+                "tax_rate_id": TAX_RATE_21_ID,
             })
 
         if data["toeslag_anders"] > 0:
@@ -946,7 +947,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Licht- en/of sierlijsten",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_anders"], "tax": "excluding"},
-                "tax_rate_id": get_tax_rate_21_id(),
+                "tax_rate_id": TAX_RATE_21_ID,
             })
 
         grouped_lines.append(section)
@@ -965,7 +966,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                   "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 })
             grouped_lines.append(mk_section)
 
@@ -979,7 +980,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Scharnieren - Softclose",
                     "extended_description": "Prijs per stuk",
                     "unit_price": {"amount": PRIJS_SCHARNIER, "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 })
 
             if data["lades"] > 0:
@@ -988,7 +989,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Maatwerk lades - Softclose",
                     "extended_description": "Prijs per stuk (incl. montage)",
                     "unit_price": {"amount": PRIJS_LADE, "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 })
 
             grouped_lines.append(acc)
@@ -1002,21 +1003,21 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Inmeten",
                     "extended_description": "Inmeten op locatie",
                     "unit_price": {"amount": INMETEN, "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 },
                 {
                     "quantity": fronts,
                     "description": "Montage per front",
                     "extended_description": "Inclusief demontage oude fronten & afvoeren",
                     "unit_price": {"amount": MONTAGE_PER_FRONT, "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 },
                 {
                     "quantity": 1,
                     "description": "Vracht- & verpakkingskosten",
                     "extended_description": "Levering op locatie",
                     "unit_price": {"amount": VRACHT, "tax": "excluding"},
-                    "tax_rate_id": get_tax_rate_21_id(),
+                    "tax_rate_id": TAX_RATE_21_ID,
                 },
             ],
         })

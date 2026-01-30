@@ -3,7 +3,7 @@ import os
 import tempfile
 import requests
 from urllib.parse import urlencode
-import inmeetverwerker_hellofront as hf
+import inmeetverwerker_hellofront as hf  # zorg dat je file zo heet: inmeetverwerker.py
 
 # ======================================================
 # 1. BASISCONFIG
@@ -13,15 +13,18 @@ CLIENT_ID = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
-REDIRECT_URI = os.environ.get("REDIRECT_URI", "https://hokenstudio-inmeettool-production.up.railway.app/")
+# Zet dit ook in Railway Variables (aanrader)
+REDIRECT_URI = os.environ.get(
+    "REDIRECT_URI",
+    "https://hokenstudio-inmeettool-production.up.railway.app/"
+)
+
 AUTH_BASE = "https://app.teamleader.eu/oauth2/authorize"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
-st.set_page_config(page_title="HelloFront – Inmeet Tool", layout="centered")
-
-st.title("HelloFront – Inmeet Tool")
+st.set_page_config(page_title="Hoken Studio – Inmeet Tool", layout="centered")
+st.title("Hoken Studio – Inmeet Tool")
 st.write("Upload een Excel-bestand om automatisch een offerte aan te maken in Teamleader.")
-
 
 # ======================================================
 # 2. CALLBACK HANDLING (na OAuth redirect)
@@ -58,9 +61,8 @@ if auth_code:
     st.success("✅ Nieuwe refresh token ontvangen!")
     st.code(new_refresh)
 
-    st.info("➡ Zet deze refresh token in Railway → Variables → REFRESH_TOKEN en redeploy daarna.")
+    st.info("➡ Zet deze refresh token in Railway → Variables → REFRESH_TOKEN en restart/redeploy daarna.")
     st.stop()
-
 
 # ======================================================
 # 3. VERBORGEN LOGIN-KNOP
@@ -76,7 +78,7 @@ def render_hidden_login_button():
 
     st.markdown(
         f"""
-        <div style="margin-top:50px; text-align:right; opacity:0.25; font-size:11px;">
+        <div style="margin-top:50px; text-align:right; opacity:0.35; font-size:11px;">
             <a href="{login_url}" style="color:#999; text-decoration:none;">
                 Teamleader opnieuw verbinden
             </a>
@@ -85,11 +87,9 @@ def render_hidden_login_button():
         unsafe_allow_html=True,
     )
 
-
 # ======================================================
 # 4. NORMAL APP FLOW
 # ======================================================
-
 uploaded_file = st.file_uploader("Kies een Excel-bestand (.xlsx)", type=["xlsx"])
 
 offerte_type = st.radio("Soort offerte", ["Particulier", "Dealer"])
@@ -100,26 +100,21 @@ deal_id = st.text_input("Teamleader deal-ID")
 st.markdown("---")
 
 if uploaded_file:
-
-    # tijdelijk opslaan
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     temp_file.write(uploaded_file.read())
     temp_file.close()
 
-    # Excel uitlezen — ***BELANGRIJK → originele working versie (8 waarden)***
     try:
         onderdelen, g2, h2, kleur, klantregels, scharnieren, lades, project = hf.lees_excel(temp_file.name)
     except Exception as e:
         st.error(f"❌ Fout bij uitlezen van Excel: {e}")
         st.stop()
 
-    # frontmodel bepalen
     model = hf.bepaal_model(g2, h2)
     if not model:
         st.error(f"❌ Onbekend model (G2='{g2}', H2='{h2}').")
         st.stop()
 
-    # offerte berekenen
     try:
         data = hf.bereken_offerte(
             onderdelen,
@@ -160,7 +155,6 @@ if uploaded_file:
 
 else:
     st.info("Upload een Excel-bestand om te beginnen.")
-
 
 # ======================================================
 # 5. VERBORGEN LOGIN-KNOP (ONDER)

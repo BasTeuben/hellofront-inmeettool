@@ -14,8 +14,6 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
-# 21% BTW
-TAX_RATE_21_ID = "94da9f7d-9bf3-04fb-ac49-404ed252c381"
 
 # Vaste kosten
 MONTAGE_PER_FRONT = 34.71

@@ -818,7 +818,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
             "description": "Klantgegevens",
             "extended_description": klanttekst,
             "unit_price": {"amount": 0, "tax": "excluding"},
-            "tax_rate_id": TAX_RATE_21_ID,
+            "tax_rate_id": get_tax_rate_21_id(),
         }],
     })
 
@@ -881,7 +881,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": f"Keukenrenovatie model {model}",
                 "extended_description": final,
                 "unit_price": {"amount": keuken_bedrag, "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": get_tax_rate_21_id(),
             }],
         })
 

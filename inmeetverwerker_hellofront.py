@@ -14,8 +14,10 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 API_BASE = "https://api.focus.teamleader.eu"
 TOKEN_URL = "https://focus.teamleader.eu/oauth2/access_token"
 
-# 21% BTW
-TAX_RATE_21_ID = "94da9f7d-9bf3-04fb-ac49-404ed252c381"
+# ✅ BTW (21%) — nieuw: dynamisch / via ENV
+# Zet in Railway bij voorkeur: TAX_RATE_21_ID=<uuid uit jouw nieuwe Teamleader omgeving>
+# Als je hem niet zet, probeert de code automatisch een 21%-taxrate op te zoeken.
+TAX_RATE_21_ID_ENV = os.getenv("TAX_RATE_21_ID") or os.getenv("TAX_RATE_ID")
 
 # Vaste kosten
 MONTAGE_PER_FRONT = 34.71
@@ -29,7 +31,8 @@ PRIJS_LADE = 184.0
 # 🔒 TOKEN MANAGEMENT — AUTOMATISCHE REFRESH + OPSLAAN
 # ======================================================
 
-TOKEN_FILE = "/app/refresh_token.txt"   # persistent binnen Railway container
+TOKEN_FILE = "/app/refresh_token.txt"        # persistent binnen Railway container
+TAX_RATE_FILE = "/app/tax_rate_21_id.txt"    # cache voor gevonden tax rate id
 
 
 def load_refresh_token():
@@ -60,6 +63,9 @@ def get_access_token():
     if not REFRESH_TOKEN:
         raise Exception("Geen refresh_token gevonden — log eerst in via de app.")
 
+    if not CLIENT_ID or not CLIENT_SECRET:
+        raise Exception("CLIENT_ID / CLIENT_SECRET ontbreken in ENV (Railway).")
+
     data = {
         "grant_type": "refresh_token",
         "refresh_token": REFRESH_TOKEN,
@@ -74,9 +80,11 @@ def get_access_token():
 
     tokens = resp.json()
 
-    # Teamleader geeft ALTIJD een nieuwe refresh_token terug
-    REFRESH_TOKEN = tokens["refresh_token"]
-    save_refresh_token(REFRESH_TOKEN)
+    # Teamleader geeft (in de praktijk) vaak een nieuwe refresh_token terug
+    # maar niet elke flow/tenant is 100% gelijk → veilig checken.
+    if "refresh_token" in tokens and tokens["refresh_token"]:
+        REFRESH_TOKEN = tokens["refresh_token"]
+        save_refresh_token(REFRESH_TOKEN)
 
     return tokens["access_token"]
 
@@ -91,6 +99,78 @@ def request_with_auto_refresh(method: str, url: str, json_data=None, files=None)
 
     resp = requests.request(method, url, headers=headers, json=json_data, files=files)
     return resp
+
+
+# ======================================================
+# ✅ TAX RATE (21%) — AUTO FIND + CACHE
+# ======================================================
+
+def _load_cached_tax_rate_id():
+    if os.path.exists(TAX_RATE_FILE):
+        with open(TAX_RATE_FILE, "r") as f:
+            v = f.read().strip()
+            return v or None
+    return None
+
+
+def _save_cached_tax_rate_id(tax_rate_id: str):
+    with open(TAX_RATE_FILE, "w") as f:
+        f.write(tax_rate_id)
+
+
+def _find_tax_rate_21_id_via_api():
+    """
+    Probeert in de nieuwe Teamleader omgeving de 21%-BTW tax rate te vinden.
+    Werkt op basis van:
+    - rate == 21 of 0.21
+    - of naam/label bevat '21'
+    """
+    url = f"{API_BASE}/taxRates.list"
+    resp = request_with_auto_refresh("POST", url, json_data={})
+
+    if resp.status_code not in (200, 201):
+        raise Exception(f"Kan tax rates niet ophalen (taxRates.list): {resp.text}")
+
+    payload = resp.json()
+    data = payload.get("data") or []
+
+    # 1) harde match op rate
+    for tr in data:
+        rate = tr.get("rate")
+        if rate in (21, 21.0, 0.21):
+            return tr.get("id")
+
+    # 2) fallback op label/description
+    for tr in data:
+        label = (tr.get("name") or tr.get("description") or tr.get("label") or "")
+        if "21" in str(label):
+            return tr.get("id")
+
+    return None
+
+
+def get_tax_rate_21_id():
+    """
+    Resolves tax rate id in deze volgorde:
+    1) ENV (TAX_RATE_21_ID of TAX_RATE_ID)
+    2) cache file
+    3) auto lookup via API (taxRates.list) + cache
+    """
+    if TAX_RATE_21_ID_ENV:
+        return TAX_RATE_21_ID_ENV
+
+    cached = _load_cached_tax_rate_id()
+    if cached:
+        return cached
+
+    found = _find_tax_rate_21_id_via_api()
+    if found:
+        _save_cached_tax_rate_id(found)
+        return found
+
+    raise Exception(
+        "Tax rate not found (21%). Zet TAX_RATE_21_ID in Railway (de UUID van 21% BTW in jouw Teamleader)."
+    )
 
 
 # ======================================================
@@ -197,7 +277,7 @@ CARROUSEL = [0, 0, 0, 452, 452, 452, 452, 452]  # G–J=452, C–F=0
 
 def _staffel_index(breedte_mm: float) -> int:
     """
-    Bepaal index in BREEDTE_STAFFELS volgens jouw regel:
+    Bepaal index in BREEDTE_STAFFELS:
     altijd naar BOVEN afronden naar de eerstvolgende staffel.
     """
     if breedte_mm is None or math.isnan(breedte_mm):
@@ -282,8 +362,7 @@ def _lees_maatwerk_kasten(path: str):
     """
     Leest tabblad 'MAATWERK KASTEN' en geeft een lijst met kast-dicts terug.
 
-    Rijstructuur (EXACT zoals bevestigd):
-
+    Rijstructuur (EXACT):
       5  = TYPE KAST (A,B of C)
       6  = Hoogte
       7  = Breedte
@@ -325,7 +404,6 @@ def _lees_maatwerk_kasten(path: str):
 
     for col in range(1, 11):  # kolommen B..K (0-based: 1..10)
 
-        # check of kast überhaupt gegevens bevat
         rows_to_check = list(range(ROW_TYPE, ROW_AFWERKING + 1))
         filled = any(
             r <= max_row_idx and not pd.isna(df.iloc[r, col])
@@ -334,7 +412,6 @@ def _lees_maatwerk_kasten(path: str):
         if not filled:
             continue
 
-        # Uitlezen velden — exact volgens bevestigde Excel-structuur
         kast_type_raw = df.iloc[ROW_TYPE, col]
         kast_type = str(kast_type_raw).strip().upper() if not pd.isna(kast_type_raw) else ""
 
@@ -379,10 +456,8 @@ def _lees_maatwerk_kasten(path: str):
         if ROW_AFWERKING <= max_row_idx and not pd.isna(df.iloc[ROW_AFWERKING, col]):
             afwerking = str(df.iloc[ROW_AFWERKING, col]).strip()
 
-        # Parse inrichting
         inrichting_parsed = _parse_inrichting(inrichting_raw)
 
-        # Kast-dict
         kast = {
             "kolom_index": col,
             "type": kast_type,
@@ -420,12 +495,8 @@ def _kast_titel(kast_type: str) -> str:
 
 def _bereken_maatwerk_kast(kast: dict):
     """
-    Berekent inkoop- en verkoopprijs voor één maatwerk kast:
-    - corpus + inrichting + scharnieren (inkoop)
-    - fronten + zichtbare zijden in m² + 40% opslag (inkoop)
-    - verkoopprijs = inkoop / 0.4 (60% marge)
+    Berekent inkoop- en verkoopprijs voor één maatwerk kast.
     """
-
     kast_type = kast.get("type", "").upper()
     hoogte = kast.get("hoogte") or 0
     breedte = kast.get("breedte") or 0
@@ -445,27 +516,19 @@ def _bereken_maatwerk_kast(kast: dict):
 
     scharnieren = kast.get("scharnieren", 0)
 
-    # -----------------------------
-    # 1) CORPUSPRIJS OP BASIS VAN TYPE + HOOGTE
-    # -----------------------------
+    # 1) CORPUSPRIJS
     corpus_inkoop = 0.0
 
     if kast_type == "A":
-        # A-kast: onderkast tot 1000mm
-        # Subtype bepalen via inrichting: lades of planken of ovens
         inrichting_raw = (kast.get("inrichting_raw") or "").lower()
         if "lade" in inrichting_raw:
-            # ladekast
             corpus_inkoop = A_LADE_KAST[idx]
         elif "plank" in inrichting_raw:
-            # voor nu zelfde prijslijn als ladekast
             corpus_inkoop = A_LADE_KAST[idx]
         else:
-            # ovenkast
             corpus_inkoop = A_OVEN_KAST[idx]
 
     elif kast_type == "B":
-        # B-kast: hoge kast
         if hoogte is None:
             hoogte = 0
         if 1001 <= hoogte <= 2079:
@@ -473,11 +536,9 @@ def _bereken_maatwerk_kast(kast: dict):
         elif 2080 <= hoogte <= 2770:
             corpus_inkoop = B_HOOG_2080_2770[idx]
         else:
-            # buiten bekende range, default op lagere hoge kast
             corpus_inkoop = B_HOOG_1001_2079[idx]
 
     elif kast_type == "C":
-        # C-kast: hangkast
         if hoogte is None:
             hoogte = 0
         if hoogte <= 390:
@@ -489,28 +550,22 @@ def _bereken_maatwerk_kast(kast: dict):
         else:
             corpus_inkoop = C_CORPUS_781_PLUS[idx]
 
-    # -----------------------------
-    # 2) INRICHTING (PLANKEN, LADES, ETC.)
-    # -----------------------------
+    # 2) INRICHTING
     inrichting_inkoop = 0.0
-
-    # Inbegrepen planken bepalen
     inbegrepen_planken = 0
 
     if kast_type == "A":
-        # A-kast "geschikt voor planken" → 2 planken inbegrepen
         if "plank" in (kast.get("inrichting_raw") or "").lower():
             inbegrepen_planken = 2
 
     if kast_type == "C":
-        # Hangkasten – afhankelijk van hoogte
         if hoogte <= 390:
             inbegrepen_planken = 0
         elif 391 <= hoogte <= 520:
             inbegrepen_planken = 1
         elif 521 <= hoogte <= 780:
             inbegrepen_planken = 2
-        else:  # >=781
+        else:
             inbegrepen_planken = 2
 
     extra_planken = max(0, planken - inbegrepen_planken)
@@ -519,52 +574,33 @@ def _bereken_maatwerk_kast(kast: dict):
 
     if lades > 0:
         inrichting_inkoop += lades * LADES_KAST[idx]
-
     if push_lades > 0:
         inrichting_inkoop += push_lades * PUSH_TO_OPEN_LADE[idx]
-
     if bestek > 0:
         inrichting_inkoop += bestek * BESTEK_BAK[idx]
-
     if spoelbesch > 0:
         inrichting_inkoop += spoelbesch * SPOELKAST_BESCHERMING[idx]
-
     if apothekers > 0:
         inrichting_inkoop += apothekers * APOTHEKERS_LADE[idx]
-
     if carrousels > 0:
         inrichting_inkoop += carrousels * CARROUSEL[idx]
-
     if klepscharnieren > 0:
-        # Zelfde prijs als scharnier per stuk
         inrichting_inkoop += klepscharnieren * SCHARNIER_PER_STUK_MAATWERK[idx]
 
-    # Scharnieren (deurscharnieren uit veld "Scharnieren")
     scharnier_inkoop = 0.0
     if scharnieren > 0:
         scharnier_inkoop = scharnieren * SCHARNIER_PER_STUK_MAATWERK[idx]
 
     corpus_inrichting_inkoop = corpus_inkoop + inrichting_inkoop + scharnier_inkoop
 
-    # -----------------------------
     # 3) FRONTEN + ZIJKANTEN IN M² + 40% OPSLAG
-    # -----------------------------
-
     frontmodel = (kast.get("frontmodel") or "").upper()
-    if frontmodel not in M2_FRONT_PRIJZEN:
-        # fallback: geen frontprijs → 0
-        front_m2_prijs = 0.0
-    else:
-        front_m2_prijs = M2_FRONT_PRIJZEN[frontmodel]
+    front_m2_prijs = M2_FRONT_PRIJZEN.get(frontmodel, 0.0)
 
-    # front-oppervlakte (hele kastfront, aantal fronten is puur informatief)
     front_m2 = (hoogte * breedte) / 1_000_000.0 if hoogte and breedte else 0.0
     front_inkoop = front_m2 * front_m2_prijs
 
-    # Zichtbare zijde(n) → gebruik vlak model per materiaal
-    materiaal_type = None
-    if frontmodel in MODEL_INFO:
-        materiaal_type = MODEL_INFO[frontmodel]["materiaal"]
+    materiaal_type = MODEL_INFO.get(frontmodel, {}).get("materiaal")
 
     zij_m2_inkoop = 0.0
     if materiaal_type in VLAK_MODEL_PER_MATERIAAL:
@@ -574,7 +610,6 @@ def _bereken_maatwerk_kast(kast: dict):
         zichtbaar = (kast.get("zichtbare_zijde") or "").lower()
         links = "links" in zichtbaar
         rechts = "rechts" in zichtbaar
-        # als alleen "ja" staat zonder links/rechts → 1 zijde
         if "ja" in zichtbaar and not (links or rechts):
             links = True
 
@@ -589,26 +624,14 @@ def _bereken_maatwerk_kast(kast: dict):
             zij_m2_inkoop = zijden * zijde_m2 * vlak_m2_prijs
 
     front_en_zijden_inkoop = front_inkoop + zij_m2_inkoop
-
-    # 40% opslag voor montage fronten op kasten
     front_en_zijden_met_opslag_inkoop = front_en_zijden_inkoop * 1.40
 
-    # -----------------------------
-    # 4) TOTAAL INKOOP + VERKOOPPRIJS
-    # -----------------------------
+    # 4) TOTAAL
     totaal_inkoop = corpus_inrichting_inkoop + front_en_zijden_met_opslag_inkoop
-
-    # 60% marge → verkoop = inkoop / 0.4
-    if totaal_inkoop > 0:
-        verkoop_excl = round(totaal_inkoop / 0.4, 2)
-    else:
-        verkoop_excl = 0.0
-
+    verkoop_excl = round(totaal_inkoop / 0.4, 2) if totaal_inkoop > 0 else 0.0
     totaal_inkoop = round(totaal_inkoop, 2)
 
-    # -----------------------------
-    # 5) BESCHRIJVING OPBOUWEN (VOLGORDE = EXCEL)
-    # -----------------------------
+    # 5) BESCHRIJVING
     aantal_fronten = kast.get("aantal_fronten", 0)
 
     beschrijving_regels = [
@@ -638,12 +661,6 @@ def _bereken_maatwerk_kast(kast: dict):
 
 
 def _bereken_alle_maatwerk_kasten(kasten_lijst):
-    """
-    Neemt de lijst kasten (ruwe data uit Excel) en rekent alles door.
-    Geeft terug:
-    - lijst met kastregels (incl. verkoopprijs)
-    - totaal verkoop excl. (som van alle kasten)
-    """
     regels = []
     totaal_verkoop = 0.0
 
@@ -680,7 +697,6 @@ def bepaal_model(g2, h2):
 # ======================================================
 
 def lees_excel(path):
-    # Hoofdtabblad (fronten)
     df = pd.read_excel(path, sheet_name=0, header=None)
 
     onderdelen = df.iloc[:, 5].dropna().astype(str).str.upper().tolist()
@@ -700,10 +716,8 @@ def lees_excel(path):
 
     projectnaam = os.path.splitext(os.path.basename(path))[0]
 
-    # Maatwerk kasten (tabblad "MAATWERK KASTEN")
     maatwerk_kasten_raw = _lees_maatwerk_kasten(path)
 
-    # project-meta doorgeven zodat bereken_offerte de maatwerk-data heeft
     project_meta = {
         "name": projectnaam,
         "maatwerk_kasten": maatwerk_kasten_raw,
@@ -717,10 +731,8 @@ def lees_excel(path):
 # ======================================================
 
 def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren, lades):
-
     info = MODEL_INFO[model]
 
-    # Projectnaam & maatwerk-data uit project-meta halen
     if isinstance(project, dict):
         projectnaam = project.get("name", "")
         maatwerk_kasten_raw = project.get("maatwerk_kasten", [])
@@ -751,10 +763,8 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         lades_totaal
     )
 
-    # Maatwerk kasten uitrekenen (inkoop → verkoop)
     maatwerk_regels, maatwerk_totaal_verkoop = _bereken_alle_maatwerk_kasten(maatwerk_kasten_raw)
 
-    # Totaal excl. = front-offerte + maatwerk-kasten (allemaal verkoopprijzen)
     totaal_excl = totaal_excl_frontdeel + maatwerk_totaal_verkoop
     btw = totaal_excl * 0.21
     totaal_incl = totaal_excl + btw
@@ -778,10 +788,8 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
         "totaal_excl": totaal_excl,
         "btw": btw,
         "totaal_incl": totaal_incl,
-        # maatwerk informatie voor Teamleader
         "maatwerk_kasten": maatwerk_regels,
         "maatwerk_totaal_verkoop": maatwerk_totaal_verkoop,
-        # ook handig om keuken-deel los te hebben
         "totaal_excl_frontdeel": totaal_excl_frontdeel,
     }
 
@@ -791,12 +799,14 @@ def bereken_offerte(onderdelen, model, project, kleur, klantregels, scharnieren,
 # ======================================================
 
 def maak_teamleader_offerte(deal_id, data, mode):
-
     url = f"{API_BASE}/quotations.create"
 
     model = data["model"]
     cfg = FRONT_DESCRIPTION_CONFIG.get(model)
     fronts = data["fronts"]
+
+    # ✅ resolve tax rate id (nieuwe TL omgeving)
+    tax_rate_21_id = get_tax_rate_21_id()
 
     klantregels = data["klantgegevens"] + ["", "", "", "", ""]
     klanttekst = (
@@ -809,10 +819,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
     grouped_lines = []
 
-    # -----------------------------
-    # KLANTGEGEVENS
-    # -----------------------------
-
     grouped_lines.append({
         "section": {"title": "KLANTGEGEVENS"},
         "line_items": [{
@@ -820,7 +826,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
             "description": "Klantgegevens",
             "extended_description": klanttekst,
             "unit_price": {"amount": 0, "tax": "excluding"},
-            "tax_rate_id": TAX_RATE_21_ID,
+            "tax_rate_id": tax_rate_21_id,
         }],
     })
 
@@ -830,14 +836,12 @@ def maak_teamleader_offerte(deal_id, data, mode):
     # -----------------------------
     # PARTICULIER
     # -----------------------------
-
     if mode == "P":
         tekst = []
         toevoegingen = []
 
         if data["toeslag_passtuk"] > 0:
             toevoegingen.append("inclusief passtukken en/of plinten")
-
         if data["toeslag_anders"] > 0:
             toevoegingen.append("inclusief licht- en/of sierlijsten")
 
@@ -873,7 +877,6 @@ def maak_teamleader_offerte(deal_id, data, mode):
 
         final = "\r\n".join(tekst)
 
-        # Keukenrenovatie-bedrag ZONDER maatwerk kasten
         keuken_bedrag = round(data["totaal_excl"] - maatwerk_totaal, 2)
 
         grouped_lines.append({
@@ -883,35 +886,27 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": f"Keukenrenovatie model {model}",
                 "extended_description": final,
                 "unit_price": {"amount": keuken_bedrag, "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": tax_rate_21_id,
             }],
         })
 
-        # MAATWERK KASTEN ALS APARTE SECTIE (variant B)
         if maatwerk_kasten:
-            mk_section = {
-                "section": {"title": "MAATWERK KASTEN"},
-                "line_items": []
-            }
+            mk_section = {"section": {"title": "MAATWERK KASTEN"}, "line_items": []}
             for kast in maatwerk_kasten:
                 mk_section["line_items"].append({
                     "quantity": 1,
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 })
             grouped_lines.append(mk_section)
 
     # -----------------------------
     # DEALER
     # -----------------------------
-
     else:
-        section = {
-            "section": {"title": "KEUKENRENOVATIE"},
-            "line_items": []
-        }
+        section = {"section": {"title": "KEUKENRENOVATIE"}, "line_items": []}
 
         section["line_items"].append({
             "quantity": fronts,
@@ -929,7 +924,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "Fronten worden geleverd zonder scharnieren"
             ),
             "unit_price": {"amount": data["prijs_per_front"], "tax": "excluding"},
-            "tax_rate_id": TAX_RATE_21_ID,
+            "tax_rate_id": tax_rate_21_id,
         })
 
         if data["toeslag_passtuk"] > 0:
@@ -938,7 +933,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Plinten en/of passtukken",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_passtuk"], "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": tax_rate_21_id,
             })
 
         if data["toeslag_anders"] > 0:
@@ -947,30 +942,23 @@ def maak_teamleader_offerte(deal_id, data, mode):
                 "description": "Licht- en/of sierlijsten",
                 "extended_description": "inclusief montage",
                 "unit_price": {"amount": data["toeslag_anders"], "tax": "excluding"},
-                "tax_rate_id": TAX_RATE_21_ID,
+                "tax_rate_id": tax_rate_21_id,
             })
 
         grouped_lines.append(section)
 
-        # -----------------------------
-        # MAATWERK KASTEN (NA KEUKENRENOVATIE, VOOR INMETEN/MONTAGE)
-        # -----------------------------
         if maatwerk_kasten:
-            mk_section = {
-                "section": {"title": "MAATWERK KASTEN"},
-                "line_items": []
-            }
+            mk_section = {"section": {"title": "MAATWERK KASTEN"}, "line_items": []}
             for kast in maatwerk_kasten:
                 mk_section["line_items"].append({
                     "quantity": 1,
                     "description": kast["titel"],
                     "extended_description": kast["beschrijving"],
                     "unit_price": {"amount": kast["verkoop_excl"], "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 })
             grouped_lines.append(mk_section)
 
-        # ACCESSOIRES (FRONT-SCHARNIEREN/LADES)
         if data["scharnieren"] > 0 or data["lades"] > 0:
             acc = {"section": {"title": "ACCESSOIRES"}, "line_items": []}
 
@@ -980,7 +968,7 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Scharnieren - Softclose",
                     "extended_description": "Prijs per stuk",
                     "unit_price": {"amount": PRIJS_SCHARNIER, "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 })
 
             if data["lades"] > 0:
@@ -989,12 +977,11 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Maatwerk lades - Softclose",
                     "extended_description": "Prijs per stuk (incl. montage)",
                     "unit_price": {"amount": PRIJS_LADE, "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 })
 
             grouped_lines.append(acc)
 
-        # INMETEN EN MONTAGE
         grouped_lines.append({
             "section": {"title": "INMETEN, LEVEREN & MONTEREN"},
             "line_items": [
@@ -1003,21 +990,21 @@ def maak_teamleader_offerte(deal_id, data, mode):
                     "description": "Inmeten",
                     "extended_description": "Inmeten op locatie",
                     "unit_price": {"amount": INMETEN, "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 },
                 {
                     "quantity": fronts,
                     "description": "Montage per front",
                     "extended_description": "Inclusief demontage oude fronten & afvoeren",
                     "unit_price": {"amount": MONTAGE_PER_FRONT, "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 },
                 {
                     "quantity": 1,
                     "description": "Vracht- & verpakkingskosten",
                     "extended_description": "Levering op locatie",
                     "unit_price": {"amount": VRACHT, "tax": "excluding"},
-                    "tax_rate_id": TAX_RATE_21_ID,
+                    "tax_rate_id": tax_rate_21_id,
                 },
             ],
         })
